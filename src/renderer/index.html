@@ -82,6 +82,7 @@
       <p class="banner-title" id="banner-title"></p>
       <p class="banner-hint" id="banner-hint"></p>
     </div>
+    <button id="banner-action" class="primary small" type="button" hidden></button>
     <button id="banner-close" class="icon-btn" type="button" aria-label="Dismiss">✕</button>
   </div>
 
@@ -171,6 +172,45 @@
       <section class="group">
         <h3>Reset</h3>
         <button id="btn-reset" class="ghost danger" type="button">Restore defaults</button>
+      </section>
+    </div>
+  </aside>
+
+  <!-- first-run setup -->
+  <aside id="setup" class="drawer wide" hidden aria-label="Set up the transcription engine">
+    <div class="drawer-head">
+      <h2>Set up the transcription engine</h2>
+      <button id="btn-setup-close" class="icon-btn" type="button" aria-label="Close">✕</button>
+    </div>
+
+    <div class="drawer-body">
+      <section class="group">
+        <p class="help lead">
+          WhisperLive needs a private Python environment with CUDA PyTorch. It is about
+          <strong>4 GB</strong> and lives in this app's own folder — your system Python,
+          if you have one, is not touched. This runs once.
+        </p>
+        <p class="help">
+          Keep the machine awake and on a connection you do not pay by the gigabyte.
+          You can close this panel; setup keeps running.
+        </p>
+      </section>
+
+      <section class="group">
+        <ol id="setup-steps" class="steps"></ol>
+      </section>
+
+      <section class="group">
+        <div class="row">
+          <button id="setup-start" class="primary" type="button">Install</button>
+          <button id="setup-cancel" class="ghost danger" type="button" hidden>Cancel</button>
+          <span id="setup-summary" class="help" style="margin:0"></span>
+        </div>
+      </section>
+
+      <section class="group">
+        <h3>Output</h3>
+        <pre id="setup-log" class="log-body inline"></pre>
       </section>
     </div>
   </aside>

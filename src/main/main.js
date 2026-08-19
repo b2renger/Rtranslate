@@ -8,6 +8,7 @@ const { resolvePython, detectGpu, probe } = require('./pythonEnv');
 const { planSession, recommendModel, MODELS } = require('./profiles');
 const { PhoneServer } = require('./phoneServer');
 const { Updater } = require('./updater');
+const { EnvSetup } = require('./envSetup');
 const { LANGUAGES, AUTO_SOURCE } = require('../shared/languages.cjs');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
@@ -20,6 +21,7 @@ let envReport = null;
 let loopbackEnabled = false;
 let phone = null;
 let updater = null;
+let envSetup = null;
 let sessionActive = false;
 
 // Single instance: two copies of this app would fight over the GPU.
@@ -282,6 +284,13 @@ async function inspectEnvironment() {
   };
 
   if (py.ok && pythonExe) {
+    // Re-inspection after first-run setup can land here with an older sidecar
+    // still bound to an environment that did not exist. Retire it first.
+    if (sidecar) {
+      if (sidecar.pythonExe === pythonExe) return envReport;
+      await sidecar.stop().catch(() => {});
+      sidecar.removeAllListeners();
+    }
     sidecar = new Sidecar({ pythonExe });
     sidecar.on('state', (s) => send('sidecar:state-changed', s));
     sidecar.on('log', (l) => send('sidecar:log', l));
@@ -383,6 +392,35 @@ function registerIpc() {
       session.defaultSession.setDisplayMediaRequestHandler(null);
       loopbackEnabled = false;
     }
+    return { ok: true };
+  });
+
+  // --- first-run environment setup ----------------------------------------
+  ipcMain.handle('env:setup-steps', () => new EnvSetup({ userDataDir: app.getPath('userData') }).steps);
+
+  ipcMain.handle('env:setup-start', async (_e, opts) => {
+    if (envSetup?.running) return { ok: false, message: 'Setup is already running.' };
+
+    envSetup = new EnvSetup({
+      userDataDir: app.getPath('userData'),
+      cudaTag: opts?.cudaTag || null,
+    });
+    envSetup.on('progress', (p) => send('env:setup-progress', p));
+    envSetup.on('log', (l) => send('env:setup-log', l));
+
+    const result = await envSetup.start();
+    if (result.ok) {
+      // Re-inspect so the rest of the app picks the new environment up without
+      // needing a restart.
+      const report = await inspectEnvironment();
+      send('env:report', report);
+      return { ...result, report };
+    }
+    return result;
+  });
+
+  ipcMain.handle('env:setup-cancel', () => {
+    envSetup?.cancel();
     return { ok: true };
   });
 
@@ -566,11 +604,15 @@ app.on('before-quit', async (event) => {
 
 // Belt and braces: if we are torn down without before-quit completing (crash,
 // SIGINT in dev, Windows session end), still take the CUDA process with us.
-app.on('will-quit', () => sidecar?.killNow());
+app.on('will-quit', () => {
+  sidecar?.killNow();
+  envSetup?.cancel();
+});
 process.on('exit', () => sidecar?.killNow());
 for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
   process.on(signal, () => {
     sidecar?.killNow();
+    envSetup?.cancel();
     process.exit(0);
   });
 }

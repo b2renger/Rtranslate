@@ -11,6 +11,14 @@ contextBridge.exposeInMainWorld('wl', {
     inspect: () => ipcRenderer.invoke('env:inspect'),
     languages: () => ipcRenderer.invoke('env:languages'),
     models: () => ipcRenderer.invoke('env:models'),
+    onReport: (cb) => subscribe('env:report', cb),
+
+    // First-run setup: builds the Python sidecar environment from nothing.
+    setupSteps: () => ipcRenderer.invoke('env:setup-steps'),
+    setupStart: (opts) => ipcRenderer.invoke('env:setup-start', opts),
+    setupCancel: () => ipcRenderer.invoke('env:setup-cancel'),
+    onSetupProgress: (cb) => subscribe('env:setup-progress', cb),
+    onSetupLog: (cb) => subscribe('env:setup-log', cb),
   },
 
   // --- settings ------------------------------------------------------------

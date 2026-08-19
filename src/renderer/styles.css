@@ -437,6 +437,50 @@ input[type="number"] {
   width: 110px;
 }
 
+/* ----------------------------------------------------------- first-run setup */
+
+.steps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+
+.step {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: 10px;
+  align-items: baseline;
+  padding: 8px 0;
+  font-size: 13px;
+  color: var(--ink-faint);
+  border-bottom: 1px solid var(--line-soft);
+}
+.step:last-child { border-bottom: none; }
+.step .mark { font-family: var(--mono); font-size: 12px; text-align: center; }
+.step .label { color: inherit; }
+.step .detail {
+  display: block;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.step.running { color: var(--ink); }
+.step.running .mark { color: var(--warn); }
+.step.done { color: var(--ink-dim); }
+.step.done .mark { color: var(--ok); }
+.step.failed { color: var(--bad); }
+.step.failed .mark { color: var(--bad); }
+
+.log-body.inline {
+  flex: none;
+  max-height: 220px;
+  padding: 10px 12px;
+  background: var(--sunk);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
 /* --------------------------------------------------------------- updates */
 
 .update-bar {

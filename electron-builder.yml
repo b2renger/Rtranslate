@@ -58,22 +58,14 @@ publish:
   releaseType: draft
 
 # ---------------------------------------------------------------------------
-# NOT DONE: the Python environment is not packaged.
+# The Python environment is NOT in this package, by design.
 #
-# This config builds a working Electron shell. The sidecar's 3-4 GB CUDA stack
-# is neither bundled nor downloaded on first run, so an installed build starts,
-# detects no Python environment, and says so with a pointer to bootstrap.ps1.
+# The CUDA PyTorch stack is 3-4 GB - far too much for an installer. Instead the
+# app builds it on first run into app.getPath('userData')/pyenv, driven by
+# src/main/envSetup.js with a visible step-by-step UI. See "First run" in the
+# README.
 #
-# That is Phase 5, and it remains the largest piece of work:
-#
-#   - download an embedded Python (uv's python-build-standalone) on first run,
-#     into app.getPath('userData')/pyenv, with resumable progress
-#   - install pinned wheels into it, including nvidia-cudnn-cu12
-#   - fetch model weights, with progress, before the first Start
-#   - pin every version: a silent CTranslate2 or torch bump breaks cuDNN
-#     loading on a machine you cannot inspect
-#   - test on a clean Windows 11 VM with no CUDA toolkit and no Python
-#
-# src/main/pythonEnv.js already looks in resources/pyenv and userData/pyenv,
-# so the download target is decided; only the downloader is missing.
+# The one thing that stage cannot do is choose your model weights: those are
+# fetched by WhisperLiveKit itself the first time a session starts, which is why
+# the first Start takes noticeably longer than later ones.
 # ---------------------------------------------------------------------------

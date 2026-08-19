@@ -51,6 +51,12 @@ const el = {
   updateText: $('update-text'),
   updateInstall: $('update-install'),
   updateDismiss: $('update-dismiss'),
+  setup: $('setup'),
+  setupSteps: $('setup-steps'),
+  setupStart: $('setup-start'),
+  setupCancel: $('setup-cancel'),
+  setupSummary: $('setup-summary'),
+  setupLog: $('setup-log'),
 };
 
 const state = {
@@ -89,9 +95,11 @@ async function init() {
   bindSettings();
   bindPhone();
   bindUpdates();
+  await bindSetup();
 
   window.wl.sidecar.onState(onSidecarState);
   window.wl.sidecar.onLog(appendLog);
+  window.wl.env.onReport(applyEnvReport);
 
   await refreshDevices();
   navigator.mediaDevices?.addEventListener?.('devicechange', refreshDevices);
@@ -104,20 +112,30 @@ async function init() {
 }
 
 function applyEnvReport(env) {
+  state.env = env;
   renderEnvTable(env);
 
-  if (!env.pythonExe) {
-    setStatus('bad', 'No Python environment');
+  // Missing or broken environments are all the same problem from the user's
+  // side, and all have the same fix: run setup. Offer it rather than describing
+  // a command to type somewhere else.
+  const fixable = ['no-python', 'no-whisperlivekit', 'no-torch'];
+  const problem = !env.pythonExe ? 'no-python' : env.python.ok ? null : env.python.error;
+
+  if (problem && fixable.includes(problem)) {
+    setStatus('bad', errorLabel(problem));
     showBanner(
-      'No Python environment found',
-      'Run npm run bootstrap in the project folder to create one, then restart WhisperLive.',
+      problem === 'no-python' ? 'WhisperLive needs to finish setting up' : errorLabel(problem),
+      'A one-time download of about 4 GB installs the transcription engine into this app\'s own folder.',
+      { label: 'Set up', onClick: () => openDrawer(el.setup) },
     );
     el.btnStart.disabled = true;
+    openDrawer(el.setup);
     return;
   }
-  if (!env.python.ok) {
-    setStatus('bad', errorLabel(env.python.error));
-    showBanner(errorLabel(env.python.error), env.python.message || 'See the log for details.');
+
+  if (problem) {
+    setStatus('bad', errorLabel(problem));
+    showBanner(errorLabel(problem), env.python.message || 'See the log for details.');
     el.btnStart.disabled = true;
     return;
   }
@@ -271,7 +289,7 @@ function bindControls() {
   el.scrim.addEventListener('click', closeDrawers);
 }
 
-const DRAWERS = () => [el.settings, el.logs, el.phone];
+const DRAWERS = () => [el.settings, el.logs, el.phone, el.setup];
 
 function openDrawer(drawer) {
   DRAWERS().forEach((d) => (d.hidden = true));
@@ -586,6 +604,94 @@ async function closeSocket() {
   }
 }
 
+// ------------------------------------------------------- first-run setup
+
+async function bindSetup() {
+  const steps = await window.wl.env.setupSteps();
+  renderSetupSteps(steps);
+
+  $('btn-setup-close').addEventListener('click', closeDrawers);
+
+  el.setupStart.addEventListener('click', async () => {
+    el.setupStart.disabled = true;
+    el.setupCancel.hidden = false;
+    el.setupSummary.textContent = 'Working…';
+    el.setupLog.replaceChildren();
+    renderSetupSteps(steps);
+
+    const result = await window.wl.env.setupStart({});
+
+    el.setupStart.disabled = false;
+    el.setupCancel.hidden = true;
+
+    if (result.ok) {
+      const device = result.info?.device ? ` on ${result.info.device}` : '';
+      el.setupSummary.textContent = `Ready${device}. You can close this.`;
+      el.setupStart.textContent = 'Reinstall';
+      el.banner.hidden = true;
+      flashStatus('Transcription engine installed');
+    } else if (result.cancelled) {
+      el.setupSummary.textContent = 'Cancelled. Nothing was left running.';
+    } else {
+      el.setupSummary.textContent = result.message || 'Setup failed. See the output below.';
+    }
+  });
+
+  el.setupCancel.addEventListener('click', async () => {
+    el.setupCancel.disabled = true;
+    await window.wl.env.setupCancel();
+    el.setupCancel.disabled = false;
+  });
+
+  window.wl.env.onSetupProgress((p) => {
+    if (p.index < 0) {
+      // A whole-run failure, not a step failure.
+      el.setupSummary.textContent = p.detail || 'Setup stopped.';
+      return;
+    }
+    const node = el.setupSteps.children[p.index];
+    if (!node) return;
+    node.className = `step ${p.status}`;
+    node.querySelector('.mark').textContent =
+      p.status === 'done' ? '✓' : p.status === 'failed' ? '✕' : '·';
+    const detail = node.querySelector('.detail');
+    detail.textContent = p.detail || '';
+    detail.hidden = !p.detail;
+  });
+
+  window.wl.env.onSetupLog((entry) => {
+    const line = document.createElement('span');
+    line.textContent = `${entry.line}\n`;
+    el.setupLog.append(line);
+    while (el.setupLog.childElementCount > 400) el.setupLog.firstElementChild.remove();
+    el.setupLog.scrollTop = el.setupLog.scrollHeight;
+  });
+}
+
+function renderSetupSteps(steps) {
+  el.setupSteps.replaceChildren();
+  for (const step of steps) {
+    const li = document.createElement('li');
+    li.className = 'step';
+
+    const mark = document.createElement('span');
+    mark.className = 'mark';
+    mark.textContent = '·';
+
+    const body = document.createElement('span');
+    const label = document.createElement('span');
+    label.className = 'label';
+    label.textContent = step.label;
+    const detail = document.createElement('span');
+    detail.className = 'detail';
+    detail.hidden = true;
+    body.append(label, detail);
+
+    li.append(mark, body);
+    el.setupSteps.append(li);
+  }
+}
+
 // ----------------------------------------------------------- phone display
 
 /**
@@ -797,9 +903,15 @@ function flashStatus(text) {
   }, 2600);
 }
 
-function showBanner(title, hint) {
+function showBanner(title, hint, action) {
   el.bannerTitle.textContent = title;
   el.bannerHint.textContent = hint || '';
+  const button = $('banner-action');
+  button.hidden = !action;
+  if (action) {
+    button.textContent = action.label;
+    button.onclick = action.onClick;
+  }
   el.banner.hidden = false;
 }
 

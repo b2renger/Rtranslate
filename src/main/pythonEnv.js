@@ -30,11 +30,14 @@ function candidates(repoRoot) {
   const list = [];
   if (process.env.WHISPERLIVE_PYTHON) list.push(process.env.WHISPERLIVE_PYTHON);
 
-  // Packaged: an environment shipped or downloaded next to the app.
+  // An environment shipped alongside a packaged build, if one is ever bundled.
   if (app && app.isPackaged) {
     list.push(path.join(process.resourcesPath, 'pyenv', PY_REL));
-    list.push(path.join(app.getPath('userData'), 'pyenv', PY_REL));
   }
+
+  // What first-run setup builds. Checked in development too, so the setup flow
+  // can be exercised without packaging.
+  if (app) list.push(path.join(app.getPath('userData'), 'pyenv', PY_REL));
 
   list.push(path.join(repoRoot, '.venv', PY_REL));
   list.push(path.join(repoRoot, 'spike', '.venv', PY_REL));
@@ -65,7 +68,8 @@ function resolvePython(repoRoot) {
 function nvidiaDllDirs(pythonExe) {
   if (!pythonExe || !IS_WIN) return [];
   const venvRoot = path.resolve(path.dirname(pythonExe), '..');
-  const nvidiaRoot = path.join(venvRoot, 'Lib', 'site-packages', 'nvidia');
+  const sitePackages = path.join(venvRoot, 'Lib', 'site-packages');
+  const nvidiaRoot = path.join(sitePackages, 'nvidia');
   const dirs = [];
   try {
     for (const entry of fs.readdirSync(nvidiaRoot, { withFileTypes: true })) {
@@ -76,6 +80,13 @@ function nvidiaDllDirs(pythonExe) {
   } catch {
     /* no nvidia packages installed; CPU-only or a non-standard layout */
   }
+
+  // On Windows the CUDA runtime usually ships inside the torch wheel rather than
+  // as separate nvidia-* packages, so this is where cudnn_ops64_9.dll actually
+  // lives most of the time. Adding both covers either layout.
+  const torchLib = path.join(sitePackages, 'torch', 'lib');
+  if (fs.existsSync(torchLib)) dirs.push(torchLib);
+
   return dirs;
 }
 

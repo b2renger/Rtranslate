@@ -9,19 +9,47 @@ captions as people talk.
 
 ---
 
-## Run it
+## First run
 
-On the machine with the NVIDIA GPU:
+Install `WhisperLive-<version>-x64.exe`, launch it, and press **Set up**. The app
+builds its own Python environment — private Python 3.12, CUDA PyTorch,
+WhisperLiveKit, NLLB and the cuDNN libraries — into its own folder. About 4 GB,
+once. Your system Python, if you have one, is never touched.
+
+The first **Start** after that is also slower than later ones: WhisperLiveKit
+fetches the model weights then.
+
+### From source
 
 ```powershell
 npm install
-npm run bootstrap      # Python 3.12 venv + CUDA stack + the cuDNN fix (3-4 GB)
-npm start
+npm start              # then press Set up, exactly as above
 ```
 
-If you have already run the Phase 0 spike on that machine, `npm run bootstrap`
-is optional — the app falls back to `spike\.venv` rather than downloading a
+`npm run bootstrap` does the same thing from PowerShell if you would rather watch
+it in a terminal. And if you have already run the Phase 0 spike on that machine,
+neither is needed — the app falls back to `spike\.venv` rather than downloading a
 second copy of PyTorch.
+
+### Why the CUDA install is not a one-liner
+
+On Windows the plain PyPI `torch` wheel is **CPU-only**; CUDA builds live on
+`download.pytorch.org` and carry a `+cuXXX` local version. Point a resolver at
+both indexes and it picks by version number — so a CUDA index whose newest torch
+trails PyPI's simply loses. Measured on 19 Aug 2026:
+
+| index | resolved torch | verdict |
+|---|---|---|
+| `cu129` | `2.13.0` | CPU wheel — rejected |
+| `cu128` | `2.13.0` + `torchaudio 2.11.0+cu128` | CPU torch, CUDA torchaudio — rejected |
+| `cu126` | `2.13.0+cu126` | accepted |
+
+Installing either of the first two costs 2.5 GB and twenty minutes to arrive at
+an environment whose only symptom is *"PyTorch cannot see a CUDA device"*. So
+setup resolves each candidate first with `uv pip compile` — about three seconds,
+no download — checks that **both** torch and torchaudio carry the expected tag,
+and only then installs. What it installs is that exact pinned resolution, saved
+alongside the environment as `requirements-<tag>.txt` and `freeze.txt`.
 
 ### Captions on phones
 
@@ -57,7 +85,7 @@ npx electron . --smoke --smoke-phone --smoke-ws=ws://127.0.0.1:8799/asr
 ### Tests
 
 ```powershell
-npm test        # 37 unit tests: session planning, failure diagnosis, ports, phone server
+npm test        # 51 unit tests: session planning, diagnosis, ports, phone server, CUDA resolution
 npm run smoke   # renderer: preload bridge, AudioContext, AudioWorklet, captions
 ```
 
@@ -75,8 +103,8 @@ npm run release   # same, plus a draft GitHub Release for auto-update
 
 ## Status
 
-**Written in one pass, not yet run against a real GPU.** Phases 1–4 are
-implemented; Phase 0's measurements and Phase 5's packaging are not done.
+**Written in one pass, not yet run against a real GPU.** Phases 1–5 are
+implemented; Phase 0's measurements are not.
 
 | Phase | What | State |
 |---|---|---|
@@ -85,7 +113,7 @@ implemented; Phase 0's measurements and Phase 5's packaging are not done.
 | P2 | Audio path | done |
 | P3 | Interface | done |
 | P4 | Language matrix | done |
-| P5 | Packaging: installer + auto-update | shell done; **Python env not packaged** |
+| P5 | Packaging: installer, first-run setup, auto-update | done |
 | — | Phone display | done |
 | P6 | Other extras (diarization, OBS out) | not started |
 
@@ -94,9 +122,10 @@ implemented; Phase 0's measurements and Phase 5's packaging are not done.
 Everything that can be checked without a GPU has been — and the same suite
 passes against the **packaged** build, not just from source:
 
-- 37 unit tests covering session planning, the four language pairs, profile-key
-  stability, failure diagnosis, port handling, and the phone server's access
-  control, SSE delivery, backlog replay and transcript cap
+- 51 unit tests covering session planning, the four language pairs, profile-key
+  stability, failure diagnosis, port handling, the phone server's access control,
+  SSE delivery, backlog replay and transcript cap, and the CUDA resolution
+  verifier against real resolver output
 - A renderer smoke test proving the preload bridge, ES module wiring, a 16 kHz
   `AudioContext` (native — no resampling needed), `AudioWorklet.addModule` under
   the page CSP, and the worklet instantiating
@@ -110,8 +139,13 @@ passes against the **packaged** build, not just from source:
 
 Everything that needs the card: model loading, real latency, real VRAM, whether
 `--direct-english-translation` behaves as assumed, whether Windows loopback audio
-works at all. Auto-update is wired and the metadata builds correctly, but no
-update has round-tripped through a real GitHub Release yet.
+works at all.
+
+Setup steps 1-3 (uv, Python 3.12, venv) have been run for real and verified, and
+the resolution logic is tested against real resolver output for all three CUDA
+indexes — but the 4 GB download itself has not been run end to end on a machine
+with a suitable GPU. Auto-update is wired and the metadata builds correctly, but
+no update has round-tripped through a real GitHub Release yet.
 
 ---
 
@@ -215,6 +249,7 @@ src/
     profiles.js     session planning - the module that absorbs question 1
     phoneServer.js  LAN caption server: SSE, access key, adapter ranking
     updater.js      auto-update, refusing to interrupt a live session
+    envSetup.js     first-run Python environment: resolve, verify CUDA, install
     settings.js     persisted config
   preload/preload.js
   renderer/
