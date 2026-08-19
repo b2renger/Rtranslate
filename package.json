@@ -1,0 +1,24 @@
+{
+  "name": "whisperlive",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local, GPU-accelerated live transcription and translation. French <-> English, nothing leaves the machine.",
+  "main": "src/main/main.js",
+  "author": "b2renger",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev --devtools",
+    "smoke": "electron . --smoke",
+    "test": "node --test",
+    "bootstrap": "powershell -ExecutionPolicy Bypass -File scripts/bootstrap.ps1",
+    "dist": "electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^43.4.1",
+    "electron-builder": "^26.15.3"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}

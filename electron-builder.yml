@@ -1,0 +1,45 @@
+appId: com.b2renger.whisperlive
+productName: WhisperLive
+copyright: Copyright © 2026 b2renger
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - src/**/*
+  - package.json
+  - "!**/*.map"
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+
+# ---------------------------------------------------------------------------
+# NOT DONE: the Python environment is not packaged.
+#
+# This config builds a working Electron shell, and nothing else. The sidecar's
+# 3-4 GB CUDA stack is neither bundled nor downloaded on first run, so an
+# installed build will start, detect no Python environment, and say so.
+#
+# That is Phase 5, and it is the largest remaining piece of work:
+#
+#   - download an embedded Python (uv's python-build-standalone) on first run,
+#     into app.getPath('userData')/pyenv, with resumable progress
+#   - install pinned wheels into it, including nvidia-cudnn-cu12
+#   - fetch model weights, with progress, before the first Start
+#   - pin every version: a silent CTranslate2 or torch bump breaks cuDNN
+#     loading on a machine you cannot inspect
+#   - test on a clean Windows 11 VM with no CUDA toolkit and no Python
+#
+# src/main/pythonEnv.js already looks in resources/pyenv and
+# userData/pyenv, so the download target is decided; only the downloader is
+# missing. Until then, run from source after `npm run bootstrap`.
+# ---------------------------------------------------------------------------

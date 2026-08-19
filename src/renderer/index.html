@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!-- blob: is here for the AudioWorklet fallback path in audio.js; without it a
+       CSP failure on addModule would take the whole audio pipeline down. -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self' blob:; worker-src 'self' blob:; style-src 'self'; img-src 'self' data:; connect-src ws://127.0.0.1:* http://127.0.0.1:* blob:; media-src 'self' blob:;">
+  <title>WhisperLive</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <div id="app" class="app">
+
+    <header class="topbar">
+      <div class="brand">
+        <span class="dot" id="live-dot" aria-hidden="true"></span>
+        <h1>WhisperLive</h1>
+      </div>
+      <div class="topbar-right">
+        <span id="status-pill" class="pill pill-idle">Checking environment…</span>
+        <button id="btn-settings" class="icon-btn" type="button" aria-label="Settings" title="Settings">⚙</button>
+      </div>
+    </header>
+
+    <section class="controls" id="controls">
+      <div class="field">
+        <label for="sel-source">Source</label>
+        <select id="sel-source"></select>
+      </div>
+
+      <div class="field">
+        <label for="sel-spoken">Spoken</label>
+        <select id="sel-spoken"></select>
+      </div>
+
+      <div class="field arrow-field" aria-hidden="true"><span class="arrow">→</span></div>
+
+      <div class="field">
+        <label for="sel-display">Display</label>
+        <select id="sel-display"></select>
+      </div>
+
+      <div class="field field-grow">
+        <label for="level">Input</label>
+        <div class="meter" id="level" role="meter" aria-label="Input level">
+          <div class="meter-fill" id="level-fill"></div>
+        </div>
+      </div>
+
+      <button id="btn-start" class="primary" type="button" disabled>Start</button>
+    </section>
+
+    <p class="route-note" id="route-note"></p>
+
+    <main class="stage">
+      <div id="captions" class="captions" aria-live="polite" aria-atomic="false"></div>
+      <div id="empty-state" class="empty-state">
+        <p class="empty-title">Nothing yet</p>
+        <p class="empty-hint">Pick a source and press Start. Committed text appears solid; words still being revised appear dimmed.</p>
+      </div>
+    </main>
+
+    <footer class="statusbar">
+      <span id="status-detail" class="status-detail"></span>
+      <div class="statusbar-right">
+        <button id="btn-present" class="ghost" type="button" title="Presentation mode (F11-style large captions)">Present</button>
+        <button id="btn-copy" class="ghost" type="button">Copy</button>
+        <button id="btn-save" class="ghost" type="button">Save…</button>
+        <button id="btn-logs" class="ghost" type="button">Logs</button>
+      </div>
+    </footer>
+  </div>
+
+  <!-- error / diagnosis banner -->
+  <div id="banner" class="banner" hidden>
+    <div class="banner-body">
+      <p class="banner-title" id="banner-title"></p>
+      <p class="banner-hint" id="banner-hint"></p>
+    </div>
+    <button id="banner-close" class="icon-btn" type="button" aria-label="Dismiss">✕</button>
+  </div>
+
+  <!-- settings drawer -->
+  <aside id="settings" class="drawer" hidden aria-label="Settings">
+    <div class="drawer-head">
+      <h2>Settings</h2>
+      <button id="btn-settings-close" class="icon-btn" type="button" aria-label="Close settings">✕</button>
+    </div>
+
+    <div class="drawer-body">
+
+      <section class="group">
+        <h3>Environment</h3>
+        <dl class="kv" id="env-kv"></dl>
+      </section>
+
+      <section class="group">
+        <h3>Model</h3>
+        <label class="row">
+          <span>Size</span>
+          <select id="set-model"></select>
+        </label>
+        <p class="help" id="model-help"></p>
+
+        <label class="row">
+          <span>Policy</span>
+          <select id="set-policy">
+            <option value="simulstreaming">AlignAtt (lowest latency)</option>
+            <option value="localagreement">LocalAgreement (licence-clean)</option>
+          </select>
+        </label>
+
+        <label class="row">
+          <span>Backend</span>
+          <select id="set-backend">
+            <option value="simulstreaming">simulstreaming</option>
+            <option value="faster-whisper">faster-whisper</option>
+          </select>
+        </label>
+
+        <label class="row">
+          <span>Frame threshold <em id="ft-value"></em></span>
+          <input id="set-ft" type="range" min="5" max="35" step="1">
+        </label>
+        <p class="help">AlignAtt lookahead, in 0.02 s frames. Lower commits text sooner but revises more. 25 ≈ 500 ms.</p>
+      </section>
+
+      <section class="group">
+        <h3>Translation</h3>
+        <label class="row check">
+          <input id="set-translation" type="checkbox">
+          <span>Enable translation (loads NLLB-200)</span>
+        </label>
+
+        <label class="row">
+          <span>NLLB size</span>
+          <select id="set-nllb-size">
+            <option value="600M">600M (fast)</option>
+            <option value="1.3B">1.3B (better, heavier)</option>
+          </select>
+        </label>
+
+        <label class="row check">
+          <input id="set-dual" type="checkbox">
+          <span>Show source alongside translation</span>
+        </label>
+        <p class="help">Dual-pane forces every pair through NLLB, so both directions get the sentence-gate delay.</p>
+
+        <label class="row check">
+          <input id="set-native" type="checkbox">
+          <span>Use Whisper's native English translation</span>
+        </label>
+        <p class="help warn" id="native-help">
+          Much faster for FR→EN — no second model, no sentence gate. But it replaces the
+          French text rather than adding English, and it is a server flag, so switching
+          direction reloads the model. Unverified: leave off until Phase 0 confirms behaviour.
+        </p>
+
+        <label class="row check">
+          <input id="set-coexist" type="checkbox">
+          <span>Native and NLLB coexist in one server</span>
+        </label>
+        <p class="help">Only tick this once the <code>mixed-paths</code> spike profile has proven it. It removes the reload on direction change.</p>
+      </section>
+
+      <section class="group">
+        <h3>Reset</h3>
+        <button id="btn-reset" class="ghost danger" type="button">Restore defaults</button>
+      </section>
+    </div>
+  </aside>
+
+  <!-- log drawer -->
+  <aside id="logs" class="drawer wide" hidden aria-label="Server log">
+    <div class="drawer-head">
+      <h2>Server log</h2>
+      <button id="btn-logs-close" class="icon-btn" type="button" aria-label="Close log">✕</button>
+    </div>
+    <pre id="log-body" class="log-body"></pre>
+  </aside>
+
+  <div id="scrim" class="scrim" hidden></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

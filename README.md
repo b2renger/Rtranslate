@@ -7,81 +7,166 @@ An Electron shell around a [WhisperLiveKit](https://github.com/QuentinFuxa/Whisp
 sidecar: pick an audio source, a spoken language and a display language, and read
 captions as people talk.
 
+---
+
+## Run it
+
+On the machine with the NVIDIA GPU:
+
+```powershell
+npm install
+npm run bootstrap      # Python 3.12 venv + CUDA stack + the cuDNN fix (3-4 GB)
+npm start
+```
+
+If you have already run the Phase 0 spike on that machine, `npm run bootstrap`
+is optional — the app falls back to `spike\.venv` rather than downloading a
+second copy of PyTorch.
+
+### Without a GPU
+
+The whole UI can be driven against a protocol-accurate stand-in:
+
+```powershell
+spike\.venv\Scripts\python.exe spike\mock_server.py 8799
+npx electron . --smoke --smoke-ws=ws://127.0.0.1:8799/asr
+```
+
+### Tests
+
+```powershell
+npm test     # 25 unit tests: session planning, failure diagnosis, port handling
+npm run smoke   # renderer: preload bridge, AudioContext, AudioWorklet, captions
+```
+
+---
+
 ## Status
 
-**Phase 0 — measurement.** No application code yet, and deliberately so: the
-plan's sequencing principle is *prove the GPU and the latency before writing a
-single line of Electron*. Phase 0 is a half-day spike whose only job is to
-replace the plan's modelled estimates with measured numbers.
+**Written in one pass, not yet run against a real GPU.** Phases 1–4 are
+implemented; Phase 0's measurements and Phase 5's packaging are not done.
 
 | Phase | What | State |
 |---|---|---|
-| **P0** | Bare-metal spike: measure latency and VRAM | tooling ready, awaiting a run |
-| P1 | Sidecar contract (spawn, supervise, kill) | blocked on P0 |
-| P2 | Audio path (device picker, AudioWorklet, PCM) | blocked on P0 |
-| P3 | Interface | blocked on P0 |
-| P4 | Language matrix | blocked on P0 |
-| P5 | Packaging and first run | — |
-| P6 | Optional extras | — |
+| P0 | Measure latency and VRAM | tooling ready in `spike/`, **not yet run** |
+| P1 | Sidecar contract | done |
+| P2 | Audio path | done |
+| P3 | Interface | done |
+| P4 | Language matrix | done |
+| P5 | Packaging and first run | **not done** — see `electron-builder.yml` |
+| P6 | Optional extras | not started |
 
-## Getting started
+### What has actually been verified
 
-Phase 0 runs on the **RTX 3070 machine**, not a 4 GB laptop GPU — `large-v3` on
-the SimulStreaming path will not fit in 4 GB.
+Everything that can be checked without a GPU has been:
 
-```powershell
-cd spike
-.\setup.ps1                                          # uv venv 3.12 + CUDA stack + cuDNN fix
-.\.venv\Scripts\python.exe record_sample.py --out samples\fr_60s.wav --seconds 60
-.\.venv\Scripts\python.exe record_sample.py --out samples\en_60s.wav --seconds 60
-.\sweep.ps1                                          # measures everything
-.\.venv\Scripts\python.exe report.py                 # renders RESULTS.md
+- 25 unit tests covering session planning, the four language pairs, profile-key
+  stability, failure diagnosis and port handling
+- A renderer smoke test proving the preload bridge, ES module wiring, a 16 kHz
+  `AudioContext` (native — no resampling needed), `AudioWorklet.addModule` under
+  the page CSP, and the worklet instantiating
+- An end-to-end run against `spike/mock_server.py`: real binary PCM frames in,
+  rendered captions out, over a real WebSocket
+
+### What has not
+
+Everything that needs the card: model loading, real latency, real VRAM, whether
+`--direct-english-translation` behaves as assumed, whether Windows loopback audio
+works at all. The four open questions below are the ones that could still bite.
+
+---
+
+## The four open questions
+
+These are handled as **settings with safe defaults**, not assumptions, so a
+wrong guess costs a checkbox rather than a rewrite.
+
+**1. Can one server serve both translation paths?**
+`--direct-english-translation` is a server flag; `language` and `target_language`
+are per-session query parameters. If turning the flag on made *every* session
+emit English, FR→FR transcription would silently break.
+
+*Default:* off. Everything routes through NLLB, all four pairs are correct, one
+server profile covers them, and the sidecar never restarts during normal use.
+FR→EN pays the sentence gate it need not pay.
+
+*After Phase 0:* if `native-en` works, tick **Use Whisper's native English
+translation** in Settings for a fast FR→EN. If the `mixed-paths` profile shows
+both paths coexist, also tick **Native and NLLB coexist** and the model reload on
+direction change disappears entirely. `test/profiles.test.js` already asserts
+both behaviours.
+
+**2. How much VRAM does large-v3 really need?**
+ÚFAL say ≥10 GB for the SimulStreaming path. The app reads VRAM at launch and
+pre-selects a model that will load, rather than letting you meet an
+out-of-memory error mid-sentence. Override it in Settings.
+
+**3. Does Windows loopback audio work?**
+Implemented with the modern `setDisplayMediaRequestHandler` + `audio: 'loopback'`
+route rather than the old constraint hack, but it is marked experimental in the
+picker and fails to a clear message pointing at VB-Cable / VoiceMeeter.
+
+**4. Is `medium` good enough?**
+For French and English, plausibly. That judgement needs ears, not a script.
+
+---
+
+## How it fits together
+
+```
+Renderer          three selectors, caption surface, level meter
+                  AudioWorklet: 48 kHz Float32 -> 16 kHz mono Int16
+                       | binary PCM frames over a localhost WebSocket
+Main process      spawns and supervises the sidecar, owns the profile key,
+                  kills the process tree on quit
+                       | child process, bound to 127.0.0.1 only
+Sidecar           whisperlivekit-server --pcm-input
+                  AlignAtt -> Whisper (CUDA) -> NLLB-200 (translation)
 ```
 
-See [spike/README.md](spike/README.md) for what each profile is asking and why.
+Two decisions carry most of the design:
+
+- **Language is a query parameter, not a server flag.** Changing either dropdown
+  closes and reopens one socket while the microphone keeps running. Only a change
+  to the *server profile* — model size, policy, or the native-English flag —
+  restarts anything, and the UI says so before you touch it.
+- **`--pcm-input`, always.** Sending raw 16 kHz mono s16le sidesteps FFmpeg
+  entirely, which is the more brittle dependency on Windows. Chromium gives us a
+  native 16 kHz `AudioContext`, so the worklet is a pure format conversion.
+
+---
 
 ## Layout
 
 ```
+src/
+  main/
+    main.js         windows, IPC, shutdown, the --smoke harness
+    sidecar.js      spawn / health / crash / guaranteed kill, failure diagnosis
+    pythonEnv.js    env discovery, the cuDNN PATH fix, GPU probe
+    profiles.js     session planning - the module that absorbs question 1
+    settings.js     persisted config
+  preload/preload.js
+  renderer/
+    app.js          orchestration, session lifecycle, socket handling
+    audio.js        device enumeration, mic + loopback capture, worklet loading
+    pcm-worklet.js  resampler and Int16 conversion
+    transcript.js   caption state; committed solid, provisional dimmed
+  shared/languages.cjs   the one canonical language-code table
 docs/
-  plan.md            The implementation plan. Start here.
-  audit-full.md      The original feasibility audit, including the Chinese
-                     analysis that scoped this project down to FR/EN.
-  websocket-api.md   Verified WhisperLiveKit wire protocol notes.
-spike/
-  setup.ps1          Environment, CUDA stack, the Windows cuDNN fix
-  profiles.json      What the sweep measures, and what question each answers
-  sweep.ps1          Runs every profile unattended
-  serve.ps1          Drive one profile by hand
-  measure_latency.py Streams a WAV at 1x and reports mouth-to-screen latency
-  record_sample.py   Records a 16 kHz mono sample
-  report.py          results.jsonl -> RESULTS.md
+  plan.md           the implementation plan
+  audit-full.md     the original audit, including the Chinese analysis
+  websocket-api.md  verified wire protocol
+spike/              Phase 0 measurement harness + the mock server
+test/               unit tests
 ```
 
-## Key decisions already taken
-
-- **French ↔ English only.** Chinese was scoped out; see
-  [docs/audit-full.md](docs/audit-full.md) for the analysis that led there.
-  Dropping it removes the need for a second ASR backend entirely.
-- **One sidecar, one model.** Language selection is a WebSocket query parameter,
-  so changing either dropdown is a socket reconnect, not a model reload.
-- **`--pcm-input`, always.** Sending raw 16 kHz mono s16le from an AudioWorklet
-  sidesteps FFmpeg, which is the more brittle dependency on Windows.
-
-## Open questions Phase 0 must answer
-
-Tracked as checkboxes in `spike/RESULTS.md`. The two that shape the most
-downstream work:
-
-1. Can one server serve **both** the native FR→EN path and the NLLB EN→FR path,
-   or does flipping direction force a sidecar relaunch?
-2. Is `medium` good enough for French and English? If it is, the whole VRAM
-   question mostly dissolves and the 3070 carries the project.
+---
 
 ## Licence note
 
 The default SimulStreaming backend is dual-licensed (PolyForm Noncommercial +
-a separate commercial licence). WhisperLiveKit itself is Apache 2.0. If this
-ever becomes commercial, either register for the commercial licence or switch to
-`faster-whisper` with the LocalAgreement policy — the `large-fasterwhisper`
-profile in the sweep exists to measure exactly what that costs.
+a separate commercial licence). WhisperLiveKit itself is Apache 2.0. If this ever
+becomes commercial, switch the policy to **LocalAgreement** with the
+`faster-whisper` backend in Settings — both are already wired up, and the
+`large-fasterwhisper` spike profile measures what that costs in latency.
