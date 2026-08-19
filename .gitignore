@@ -1,0 +1,31 @@
+# --- python -----------------------------------------------------------------
+.venv/
+spike/.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# --- spike artefacts --------------------------------------------------------
+# Voice samples stay local: they are your voice, they are large, and they are
+# not reproducible for anyone else anyway.
+spike/samples/
+spike/logs/
+
+# --- models -----------------------------------------------------------------
+models/
+*.bin
+*.pt
+*.ckpt
+*.safetensors
+
+# --- node / electron (phases 1+) -------------------------------------------
+node_modules/
+dist/
+out/
+release/
+*.log
+
+# --- os ---------------------------------------------------------------------
+Thumbs.db
+Desktop.ini
+.DS_Store
