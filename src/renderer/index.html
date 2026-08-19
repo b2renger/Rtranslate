@@ -65,6 +65,9 @@
     <footer class="statusbar">
       <span id="status-detail" class="status-detail"></span>
       <div class="statusbar-right">
+        <button id="btn-phone" class="ghost" type="button" title="Show captions on phones on this network">
+          Phone <span id="phone-count" class="count" hidden>0</span>
+        </button>
         <button id="btn-present" class="ghost" type="button" title="Presentation mode (F11-style large captions)">Present</button>
         <button id="btn-copy" class="ghost" type="button">Copy</button>
         <button id="btn-save" class="ghost" type="button">Save…</button>
@@ -168,6 +171,77 @@
       <section class="group">
         <h3>Reset</h3>
         <button id="btn-reset" class="ghost danger" type="button">Restore defaults</button>
+      </section>
+    </div>
+  </aside>
+
+  <!-- update bar -->
+  <div id="update-bar" class="update-bar" hidden>
+    <span id="update-text" class="update-text"></span>
+    <div class="update-actions">
+      <button id="update-install" class="primary small" type="button" hidden>Restart &amp; update</button>
+      <button id="update-dismiss" class="ghost" type="button">Later</button>
+    </div>
+  </div>
+
+  <!-- phone drawer -->
+  <aside id="phone" class="drawer" hidden aria-label="Phone display">
+    <div class="drawer-head">
+      <h2>Phone display</h2>
+      <button id="btn-phone-close" class="icon-btn" type="button" aria-label="Close">✕</button>
+    </div>
+
+    <div class="drawer-body">
+      <section class="group">
+        <p class="help lead">
+          Serves the live captions to any phone or tablet on this network. Scan the
+          code, or type the address into a browser. Nothing leaves your network.
+        </p>
+
+        <label class="row check">
+          <input id="phone-toggle" type="checkbox">
+          <span>Share captions on this network</span>
+        </label>
+
+        <p class="help" id="phone-firewall" hidden>
+          Windows will ask whether to allow WhisperLive through the firewall the first
+          time. Allow it on <strong>private</strong> networks; the phone cannot connect otherwise.
+        </p>
+      </section>
+
+      <section class="group" id="phone-details" hidden>
+        <div class="qr-card">
+          <img id="phone-qr" class="qr" alt="QR code for the caption page" width="220" height="220">
+        </div>
+
+        <label class="row">
+          <span>Address</span>
+          <select id="phone-address"></select>
+        </label>
+
+        <div class="url-row">
+          <code id="phone-url" class="url"></code>
+          <button id="phone-copy" class="ghost" type="button">Copy</button>
+        </div>
+
+        <dl class="kv">
+          <dt>Access key</dt><dd id="phone-key">—</dd>
+          <dt>Connected</dt><dd id="phone-clients">0 devices</dd>
+        </dl>
+
+        <p class="help">
+          If several addresses are listed, pick the one on the same Wi-Fi as the phone.
+          Virtual adapters (WSL, Hyper-V, VPNs) are ranked last and will not work.
+        </p>
+      </section>
+
+      <section class="group">
+        <h3>Port</h3>
+        <label class="row">
+          <span>Listen on</span>
+          <input id="phone-port" type="number" min="1024" max="65535" step="1">
+        </label>
+        <p class="help">Changing this restarts the phone server and invalidates open links.</p>
       </section>
     </div>
   </aside>

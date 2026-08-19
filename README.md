@@ -23,20 +23,52 @@ If you have already run the Phase 0 spike on that machine, `npm run bootstrap`
 is optional — the app falls back to `spike\.venv` rather than downloading a
 second copy of PyTorch.
 
+### Captions on phones
+
+Press **Phone** in the status bar and turn on sharing. The app serves the live
+captions to any phone or tablet on the same network — scan the QR code, or type
+the address into a browser. Nothing leaves your network.
+
+On the phone: tap the captions to hide the toolbar, `A−`/`A+` to size the text,
+`⛶` for fullscreen, and — when a translation is running — a chip to flip between
+the translation and what was actually spoken. The screen is kept awake, and the
+page reconnects itself through screen locks and Wi-Fi drops.
+
+Two things worth knowing:
+
+- **Windows will ask about the firewall** the first time, because sharing binds
+  to `0.0.0.0`. Allow it on **private** networks or phones cannot connect.
+- **Access is gated by a six-character key** in the URL, regenerated every time
+  sharing starts. A device on the network that has not scanned the code gets a
+  403, not the conversation. Stopping and restarting sharing invalidates open links.
+
+If several addresses are listed, pick the one on the same Wi-Fi as the phone.
+Virtual adapters (WSL, Hyper-V, VPNs) are ranked last and will not work.
+
 ### Without a GPU
 
 The whole UI can be driven against a protocol-accurate stand-in:
 
 ```powershell
 spike\.venv\Scripts\python.exe spike\mock_server.py 8799
-npx electron . --smoke --smoke-ws=ws://127.0.0.1:8799/asr
+npx electron . --smoke --smoke-phone --smoke-ws=ws://127.0.0.1:8799/asr
 ```
 
 ### Tests
 
 ```powershell
-npm test     # 25 unit tests: session planning, failure diagnosis, port handling
+npm test        # 37 unit tests: session planning, failure diagnosis, ports, phone server
 npm run smoke   # renderer: preload bridge, AudioContext, AudioWorklet, captions
+```
+
+Add `--smoke-phone` to also start the LAN server, load the phone page in a real
+browser window, push captions into it and read back what a phone would show.
+
+### Building
+
+```powershell
+npm run dist      # release\WhisperLive-<version>-x64.exe  (~100 MB)
+npm run release   # same, plus a draft GitHub Release for auto-update
 ```
 
 ---
@@ -53,26 +85,33 @@ implemented; Phase 0's measurements and Phase 5's packaging are not done.
 | P2 | Audio path | done |
 | P3 | Interface | done |
 | P4 | Language matrix | done |
-| P5 | Packaging and first run | **not done** — see `electron-builder.yml` |
-| P6 | Optional extras | not started |
+| P5 | Packaging: installer + auto-update | shell done; **Python env not packaged** |
+| — | Phone display | done |
+| P6 | Other extras (diarization, OBS out) | not started |
 
 ### What has actually been verified
 
-Everything that can be checked without a GPU has been:
+Everything that can be checked without a GPU has been — and the same suite
+passes against the **packaged** build, not just from source:
 
-- 25 unit tests covering session planning, the four language pairs, profile-key
-  stability, failure diagnosis and port handling
+- 37 unit tests covering session planning, the four language pairs, profile-key
+  stability, failure diagnosis, port handling, and the phone server's access
+  control, SSE delivery, backlog replay and transcript cap
 - A renderer smoke test proving the preload bridge, ES module wiring, a 16 kHz
   `AudioContext` (native — no resampling needed), `AudioWorklet.addModule` under
   the page CSP, and the worklet instantiating
 - An end-to-end run against `spike/mock_server.py`: real binary PCM frames in,
   rendered captions out, over a real WebSocket
+- An end-to-end run of the phone display: LAN server up, page loaded in a real
+  browser window, SSE connected, captions rendered, the source/translation
+  toggle working, and a wrong key refused
 
 ### What has not
 
 Everything that needs the card: model loading, real latency, real VRAM, whether
 `--direct-english-translation` behaves as assumed, whether Windows loopback audio
-works at all. The four open questions below are the ones that could still bite.
+works at all. Auto-update is wired and the metadata builds correctly, but no
+update has round-tripped through a real GitHub Release yet.
 
 ---
 
@@ -136,6 +175,35 @@ Two decisions carry most of the design:
 
 ---
 
+## Auto-update
+
+Wired with `electron-updater`, and shaped by one rule: **it must never interrupt
+a live session.** Updates download quietly in the background; installing is
+always your click, and if a session is running the app says so and asks again
+before restarting.
+
+Offline is treated as normal, not as an error — this is an app whose whole point
+is working without a network, so a failed update check stays silent.
+
+To turn it on you need a repo for releases to live in:
+
+```powershell
+gh repo create b2renger/WhisperLive --private --source=. --remote=origin
+git push -u origin main
+
+$env:GH_TOKEN = "ghp_..."      # a token with repo scope
+# bump "version" in package.json, then:
+npm run release                # builds, tags, uploads a DRAFT release
+```
+
+Publish the draft and every installed copy picks it up on next launch, or within
+six hours. To self-host instead of using GitHub, swap the `publish:` block in
+`electron-builder.yml` for `provider: generic` and a URL, then copy the
+installer, `latest.yml` and the `.blockmap` there.
+
+Builds are unsigned, so Windows SmartScreen warns on first run. A code-signing
+certificate is the only thing missing; updates themselves work regardless.
+
 ## Layout
 
 ```
@@ -145,6 +213,8 @@ src/
     sidecar.js      spawn / health / crash / guaranteed kill, failure diagnosis
     pythonEnv.js    env discovery, the cuDNN PATH fix, GPU probe
     profiles.js     session planning - the module that absorbs question 1
+    phoneServer.js  LAN caption server: SSE, access key, adapter ranking
+    updater.js      auto-update, refusing to interrupt a live session
     settings.js     persisted config
   preload/preload.js
   renderer/
@@ -152,6 +222,7 @@ src/
     audio.js        device enumeration, mic + loopback capture, worklet loading
     pcm-worklet.js  resampler and Int16 conversion
     transcript.js   caption state; committed solid, provisional dimmed
+  phone/            the page phones load: no build step, no dependencies
   shared/languages.cjs   the one canonical language-code table
 docs/
   plan.md           the implementation plan

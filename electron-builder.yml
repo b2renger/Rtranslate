@@ -10,6 +10,7 @@ files:
   - src/**/*
   - package.json
   - "!**/*.map"
+  - "!**/*.md"
 
 win:
   target:
@@ -21,15 +22,49 @@ nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
   perMachine: false
+  # Auto-update needs the app to be able to replace itself without elevation,
+  # which a per-user install gives us for free.
+  differentialPackage: true
+
+# ---------------------------------------------------------------------------
+# Auto-update
+#
+# electron-updater reads this block at build time and bakes it into
+# app-update.yml inside the package. Publishing a GitHub Release with the
+# installer plus latest.yml attached is all a running app needs to find it.
+#
+#   1. Create the repo and push:
+#        gh repo create b2renger/WhisperLive --private --source=. --remote=origin
+#        git push -u origin main
+#   2. Set a token with repo scope:  $env:GH_TOKEN = "ghp_..."
+#   3. Bump "version" in package.json, then:  npm run release
+#
+# electron-builder tags, creates a draft release, and uploads the installer,
+# latest.yml and the blockmap. Publish the draft and every installed copy picks
+# it up within six hours, or on next launch.
+#
+# Self-hosting instead of GitHub: swap the block below for
+#   provider: generic
+#   url: https://your.host/whisperlive/
+# and copy the same three files there.
+#
+# Unsigned builds update fine, but Windows SmartScreen will warn on first run.
+# A code-signing certificate removes that; it is the only thing missing here.
+# ---------------------------------------------------------------------------
+publish:
+  provider: github
+  owner: b2renger
+  repo: WhisperLive
+  releaseType: draft
 
 # ---------------------------------------------------------------------------
 # NOT DONE: the Python environment is not packaged.
 #
-# This config builds a working Electron shell, and nothing else. The sidecar's
-# 3-4 GB CUDA stack is neither bundled nor downloaded on first run, so an
-# installed build will start, detect no Python environment, and say so.
+# This config builds a working Electron shell. The sidecar's 3-4 GB CUDA stack
+# is neither bundled nor downloaded on first run, so an installed build starts,
+# detects no Python environment, and says so with a pointer to bootstrap.ps1.
 #
-# That is Phase 5, and it is the largest remaining piece of work:
+# That is Phase 5, and it remains the largest piece of work:
 #
 #   - download an embedded Python (uv's python-build-standalone) on first run,
 #     into app.getPath('userData')/pyenv, with resumable progress
@@ -39,7 +74,6 @@ nsis:
 #     loading on a machine you cannot inspect
 #   - test on a clean Windows 11 VM with no CUDA toolkit and no Python
 #
-# src/main/pythonEnv.js already looks in resources/pyenv and
-# userData/pyenv, so the download target is decided; only the downloader is
-# missing. Until then, run from source after `npm run bootstrap`.
+# src/main/pythonEnv.js already looks in resources/pyenv and userData/pyenv,
+# so the download target is decided; only the downloader is missing.
 # ---------------------------------------------------------------------------

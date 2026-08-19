@@ -36,6 +36,21 @@ const el = {
   logBody: $('log-body'),
   scrim: $('scrim'),
   envKv: $('env-kv'),
+  phone: $('phone'),
+  phoneToggle: $('phone-toggle'),
+  phoneDetails: $('phone-details'),
+  phoneFirewall: $('phone-firewall'),
+  phoneQr: $('phone-qr'),
+  phoneAddress: $('phone-address'),
+  phoneUrl: $('phone-url'),
+  phoneKey: $('phone-key'),
+  phoneClients: $('phone-clients'),
+  phonePort: $('phone-port'),
+  phoneCount: $('phone-count'),
+  updateBar: $('update-bar'),
+  updateText: $('update-text'),
+  updateInstall: $('update-install'),
+  updateDismiss: $('update-dismiss'),
 };
 
 const state = {
@@ -72,6 +87,8 @@ async function init() {
   buildLanguageSelectors();
   bindControls();
   bindSettings();
+  bindPhone();
+  bindUpdates();
 
   window.wl.sidecar.onState(onSidecarState);
   window.wl.sidecar.onLog(appendLog);
@@ -254,16 +271,16 @@ function bindControls() {
   el.scrim.addEventListener('click', closeDrawers);
 }
 
+const DRAWERS = () => [el.settings, el.logs, el.phone];
+
 function openDrawer(drawer) {
-  el.settings.hidden = true;
-  el.logs.hidden = true;
+  DRAWERS().forEach((d) => (d.hidden = true));
   drawer.hidden = false;
   el.scrim.hidden = false;
 }
 
 function closeDrawers() {
-  el.settings.hidden = true;
-  el.logs.hidden = true;
+  DRAWERS().forEach((d) => (d.hidden = true));
   el.scrim.hidden = true;
 }
 
@@ -420,6 +437,7 @@ async function startSession() {
     });
 
     state.running = true;
+    window.wl.setSessionActive(true);
     el.btnStart.textContent = 'Stop';
     el.btnStart.classList.add('stop');
     el.liveDot.classList.add('live');
@@ -437,6 +455,18 @@ async function startSession() {
 
 async function stopSession({ keepTranscript = true, silent = false } = {}) {
   state.running = false;
+  window.wl.setSessionActive(false);
+  // Tell any phones the room went quiet, rather than leaving them showing a
+  // live-looking screen that has silently stopped updating.
+  if (broadcastPending || !state.transcript.isEmpty()) {
+    window.wl.phone.broadcast({
+      lines: state.transcript.lines.map((l) => ({ speaker: l.speaker, text: l.text || '', translation: l.translation || '' })),
+      bufferText: '',
+      bufferTranslation: '',
+      hasTranslation: state.transcript.display.primaryField === 'translation',
+      status: 'Stopped',
+    });
+  }
   el.btnStart.textContent = 'Start';
   el.btnStart.classList.remove('stop');
   el.liveDot.classList.remove('live');
@@ -516,7 +546,10 @@ function openSocket(url) {
         );
         return;
       }
-      if (state.transcript.ingest(msg)) el.emptyState.hidden = true;
+      if (state.transcript.ingest(msg)) {
+        el.emptyState.hidden = true;
+        queueBroadcast(msg);
+      }
     });
 
     ws.addEventListener('error', () => {
@@ -550,6 +583,187 @@ async function closeSocket() {
     ws.close();
   } catch {
     /* already closing */
+  }
+}
+
+// ----------------------------------------------------------- phone display
+
+/**
+ * Caption updates arrive several times a second and each carries the full line
+ * list. Coalescing to ~7 fps is well under the threshold where a reader would
+ * notice, and keeps a room full of phones from turning into a fan.
+ */
+let broadcastPending = null;
+let broadcastTimer = null;
+
+function queueBroadcast(msg) {
+  broadcastPending = msg;
+  if (broadcastTimer) return;
+  broadcastTimer = setTimeout(() => {
+    broadcastTimer = null;
+    const pending = broadcastPending;
+    broadcastPending = null;
+    if (pending) sendBroadcast(pending);
+  }, 140);
+}
+
+function sendBroadcast(msg) {
+  const display = state.transcript.display;
+  const hasTranslation = display.primaryField === 'translation';
+  const label = (id) => state.languages.find((l) => l.id === id)?.short || id.toUpperCase();
+
+  window.wl.phone.broadcast({
+    lines: (msg.lines || []).map((l) => ({
+      speaker: l.speaker,
+      text: l.text || '',
+      translation: l.translation || '',
+    })),
+    bufferText: msg.buffer_transcription || '',
+    bufferTranslation: msg.buffer_translation || '',
+    hasTranslation,
+    sourceLabel: label(el.selSpoken.value),
+    targetLabel: label(el.selDisplay.value),
+    status: state.running ? 'Live' : 'Paused',
+  });
+}
+
+function bindPhone() {
+  el.phonePort.value = String(state.settings.phonePort || 8420);
+
+  $('btn-phone').addEventListener('click', async () => {
+    await refreshPhone();
+    openDrawer(el.phone);
+  });
+  $('btn-phone-close').addEventListener('click', closeDrawers);
+
+  el.phoneToggle.addEventListener('change', async () => {
+    if (el.phoneToggle.checked) {
+      el.phoneFirewall.hidden = false;
+      const res = await window.wl.phone.start(Number(el.phonePort.value) || 8420);
+      if (!res.ok) {
+        el.phoneToggle.checked = false;
+        showBanner('Could not start the phone display', res.message);
+        return;
+      }
+      applyPhoneInfo(res);
+    } else {
+      await window.wl.phone.stop();
+      applyPhoneInfo({ running: false });
+    }
+  });
+
+  el.phoneAddress.addEventListener('change', async () => {
+    const url = el.phoneAddress.value;
+    el.phoneUrl.textContent = url;
+    const { qr } = await window.wl.phone.qr(url);
+    if (qr) el.phoneQr.src = qr;
+  });
+
+  $('phone-copy').addEventListener('click', async () => {
+    await navigator.clipboard.writeText(el.phoneUrl.textContent);
+    flashStatus('Address copied');
+  });
+
+  el.phonePort.addEventListener('change', async () => {
+    const port = Number(el.phonePort.value) || 8420;
+    state.settings = await window.wl.settings.patch({ phonePort: port });
+    if (el.phoneToggle.checked) {
+      await window.wl.phone.stop();
+      const res = await window.wl.phone.start(port);
+      if (!res.ok) {
+        el.phoneToggle.checked = false;
+        showBanner('Could not restart the phone display', res.message);
+        return;
+      }
+      applyPhoneInfo(res);
+    }
+  });
+
+  window.wl.phone.onClients((info) => applyPhoneInfo(info));
+  window.wl.phone.onError((e) => showBanner('Phone display error', e.message));
+}
+
+async function refreshPhone() {
+  applyPhoneInfo(await window.wl.phone.info());
+}
+
+function applyPhoneInfo(info) {
+  const running = Boolean(info?.running);
+  el.phoneToggle.checked = running;
+  el.phoneDetails.hidden = !running;
+  el.phoneFirewall.hidden = !running;
+
+  const count = info?.clientCount || 0;
+  el.phoneCount.hidden = !running || count === 0;
+  el.phoneCount.textContent = String(count);
+  el.phoneClients.textContent = `${count} device${count === 1 ? '' : 's'}`;
+
+  if (!running) return;
+
+  el.phoneKey.textContent = info.key || '—';
+  if (info.qr) el.phoneQr.src = info.qr;
+
+  if (Array.isArray(info.addresses) && info.addresses.length) {
+    const current = el.phoneAddress.value;
+    el.phoneAddress.replaceChildren();
+    for (const addr of info.addresses) {
+      const opt = document.createElement('option');
+      opt.value = addr.url;
+      opt.textContent = `${addr.address} — ${addr.name}`;
+      el.phoneAddress.append(opt);
+    }
+    el.phoneAddress.value =
+      info.addresses.some((a) => a.url === current) ? current : info.addresses[0].url;
+    el.phoneUrl.textContent = el.phoneAddress.value;
+  } else if (info.url) {
+    el.phoneUrl.textContent = info.url;
+  }
+}
+
+// --------------------------------------------------------------- updates
+
+function bindUpdates() {
+  window.wl.update.onStatus(applyUpdateStatus);
+  window.wl.update.status().then(applyUpdateStatus);
+
+  el.updateDismiss.addEventListener('click', () => {
+    el.updateBar.hidden = true;
+  });
+
+  el.updateInstall.addEventListener('click', async () => {
+    let res = await window.wl.update.install();
+    if (res.needsConfirm) {
+      // Never cut someone off mid-conversation without asking.
+      if (!confirm(`${res.message}\n\nInstall now anyway?`)) return;
+      res = await window.wl.update.install({ force: true });
+    }
+    if (!res.ok) showBanner('Could not install the update', res.message);
+  });
+}
+
+function applyUpdateStatus(status) {
+  if (!status || status.state === 'idle' || status.state === 'disabled' || status.state === 'current') {
+    el.updateBar.hidden = true;
+    return;
+  }
+  if (status.state === 'checking') return; // too transient to be worth a bar
+
+  if (status.state === 'error') {
+    // Offline is normal for an app designed to work without a network. Do not
+    // nag about it.
+    el.updateBar.hidden = true;
+    return;
+  }
+
+  const version = status.info?.version ? ` ${status.info.version}` : '';
+  if (status.state === 'downloading') {
+    el.updateBar.hidden = false;
+    el.updateInstall.hidden = true;
+    el.updateText.textContent = `Downloading update${version}… ${status.progress ?? 0}%`;
+  } else if (status.state === 'ready') {
+    el.updateBar.hidden = false;
+    el.updateInstall.hidden = false;
+    el.updateText.textContent = `Update${version} is ready to install.`;
   }
 }
 

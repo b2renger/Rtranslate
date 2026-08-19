@@ -12,6 +12,12 @@ const SESSION_DEFAULTS = {
   deviceId: 'default',
   captureMode: 'mic', // mic | system
   presentationMode: false,
+
+  // Phone display. Off by default: starting it binds to 0.0.0.0, which is when
+  // the Windows firewall prompt appears, and that should follow a deliberate
+  // click rather than ambush someone on first launch.
+  phoneEnabled: false,
+  phonePort: 8420,
 };
 
 class Settings {

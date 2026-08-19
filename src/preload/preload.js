@@ -43,6 +43,29 @@ contextBridge.exposeInMainWorld('wl', {
     disableLoopback: () => ipcRenderer.invoke('capture:disable-loopback'),
   },
 
+  // --- phone display -------------------------------------------------------
+  phone: {
+    start: (port) => ipcRenderer.invoke('phone:start', { port }),
+    stop: () => ipcRenderer.invoke('phone:stop'),
+    info: () => ipcRenderer.invoke('phone:info'),
+    qr: (url) => ipcRenderer.invoke('phone:qr', { url }),
+    /** Fire-and-forget: this runs several times a second. */
+    broadcast: (payload) => ipcRenderer.send('phone:broadcast', payload),
+    onClients: (cb) => subscribe('phone:clients', cb),
+    onError: (cb) => subscribe('phone:error', cb),
+  },
+
+  // --- updates -------------------------------------------------------------
+  update: {
+    status: () => ipcRenderer.invoke('update:status'),
+    check: () => ipcRenderer.invoke('update:check'),
+    install: (opts) => ipcRenderer.invoke('update:install', opts),
+    onStatus: (cb) => subscribe('update:status-changed', cb),
+  },
+
+  // Lets main refuse to install an update while someone is being captioned.
+  setSessionActive: (active) => ipcRenderer.send('session:set-active', active),
+
   // --- misc ----------------------------------------------------------------
   shell: {
     saveTranscript: (payload) => ipcRenderer.invoke('shell:save-transcript', payload),

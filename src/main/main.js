@@ -6,6 +6,8 @@ const { Sidecar } = require('./sidecar');
 const { Settings } = require('./settings');
 const { resolvePython, detectGpu, probe } = require('./pythonEnv');
 const { planSession, recommendModel, MODELS } = require('./profiles');
+const { PhoneServer } = require('./phoneServer');
+const { Updater } = require('./updater');
 const { LANGUAGES, AUTO_SOURCE } = require('../shared/languages.cjs');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
@@ -16,6 +18,9 @@ let settings = null;
 let sidecar = null;
 let envReport = null;
 let loopbackEnabled = false;
+let phone = null;
+let updater = null;
+let sessionActive = false;
 
 // Single instance: two copies of this app would fight over the GPU.
 if (!app.requestSingleInstanceLock()) {
@@ -33,6 +38,13 @@ if (!app.requestSingleInstanceLock()) {
 async function bootstrap() {
   settings = new Settings();
 
+  phone = new PhoneServer();
+  phone.on('clients', (count) => send('phone:clients', { clientCount: count, ...phone.info() }));
+  phone.on('error', (err) => send('phone:error', { message: err.message }));
+
+  updater = new Updater({ isSessionActive: () => sessionActive });
+  updater.on('status', (status) => send('update:status-changed', status));
+
   // Handlers must exist before the window loads: loadFile() resolves only after
   // the page's module script has already run, and that script calls IPC on its
   // first line. Registering afterwards is a race the renderer always wins.
@@ -44,6 +56,8 @@ async function bootstrap() {
     app.exit(code);
     return;
   }
+
+  updater.init();
 
   // Inspecting the environment spawns Python, so do it after the window exists -
   // the UI can show "checking..." instead of a blank screen.
@@ -180,6 +194,10 @@ async function runSmoke() {
     return 1;
   }
 
+  if (process.argv.includes('--smoke-phone')) {
+    results.push(...(await runPhoneSmoke()));
+  }
+
   let failed = 0;
   console.log('\n  renderer smoke test\n  ' + '-'.repeat(58));
   for (const r of results) {
@@ -223,6 +241,25 @@ async function createWindow() {
 
 function send(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+}
+
+/**
+ * QR for the phone URL. Dark modules on a near-white card: scanners want the
+ * contrast that way round, however dark the surrounding UI is.
+ */
+async function qrFor(url) {
+  if (!url) return null;
+  try {
+    const QRCode = require('qrcode');
+    return await QRCode.toDataURL(url, {
+      margin: 1,
+      width: 320,
+      errorCorrectionLevel: 'M',
+      color: { dark: '#0e1215ff', light: '#f2f6f7ff' },
+    });
+  } catch {
+    return null; // the URL is shown as text regardless
+  }
 }
 
 // --------------------------------------------------------------------------
@@ -349,6 +386,46 @@ function registerIpc() {
     return { ok: true };
   });
 
+  // --- phone display ------------------------------------------------------
+  ipcMain.handle('phone:start', async (_e, opts) => {
+    try {
+      const port = Number(opts?.port) || settings.get().phonePort || 8420;
+      const info = await phone.start({ port });
+      settings.patch({ phoneEnabled: true, phonePort: port });
+      return { ok: true, ...info, qr: await qrFor(info.url) };
+    } catch (err) {
+      return { ok: false, message: err.message };
+    }
+  });
+
+  ipcMain.handle('phone:stop', async () => {
+    await phone.stop();
+    settings.patch({ phoneEnabled: false });
+    return { ok: true, ...phone.info() };
+  });
+
+  ipcMain.handle('phone:info', async () => {
+    const info = phone.info();
+    return { ...info, qr: info.url ? await qrFor(info.url) : null };
+  });
+
+  ipcMain.handle('phone:qr', async (_e, { url }) => ({ qr: await qrFor(url) }));
+
+  // Fire-and-forget: caption updates arrive several times a second and a round
+  // trip per frame would be pure overhead.
+  ipcMain.on('phone:broadcast', (_e, payload) => {
+    if (phone?.running) phone.broadcast(payload);
+  });
+
+  ipcMain.on('session:set-active', (_e, active) => {
+    sessionActive = Boolean(active);
+  });
+
+  // --- updates ------------------------------------------------------------
+  ipcMain.handle('update:status', () => updater.status);
+  ipcMain.handle('update:check', () => updater.check({ silent: false }));
+  ipcMain.handle('update:install', (_e, opts) => updater.installNow(opts || {}));
+
   ipcMain.handle('shell:save-transcript', async (_e, { text, suggestedName }) => {
     const { canceled, filePath } = await dialog.showSaveDialog(win, {
       title: 'Save transcript',
@@ -365,6 +442,109 @@ function registerIpc() {
   });
 }
 
+/**
+ * End-to-end test of the phone display: start the LAN server, load the page it
+ * serves in a real browser window, push captions, and read back what a phone
+ * would actually be showing. Proves SSE delivery, the access key, rendering and
+ * the source/translation toggle without anyone picking up a phone.
+ *
+ *   npm start -- --smoke --smoke-phone
+ */
+async function runPhoneSmoke() {
+  const results = [];
+  const check = async (name, fn) => {
+    try {
+      results.push({ name, ok: true, detail: String((await fn()) ?? '') });
+    } catch (err) {
+      results.push({ name, ok: false, detail: err.message });
+    }
+  };
+
+  const server = new PhoneServer();
+  let viewer = null;
+
+  try {
+    const info = await server.start({ port: 8533 });
+
+    await check('phone server starts and reports a URL', () => {
+      if (!info.url || !info.key) throw new Error('no URL or key');
+      return info.url.replace(/k=.*/, 'k=******');
+    });
+
+    await check('phone page loads in a browser', async () => {
+      viewer = new BrowserWindow({ show: false, width: 420, height: 800 });
+      await viewer.loadURL(info.url);
+      const title = await viewer.webContents.executeJavaScript('document.title');
+      if (!/captions/i.test(title)) throw new Error(`unexpected title: ${title}`);
+      return title;
+    });
+
+    await check('SSE stream connects from the page', async () => {
+      const deadline = Date.now() + 8000;
+      while (Date.now() < deadline) {
+        if (server.clientCount > 0) return `${server.clientCount} client`;
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      throw new Error('page never opened the event stream');
+    });
+
+    await check('captions reach the phone and render', async () => {
+      server.broadcast({
+        lines: [
+          { speaker: 1, text: 'bonjour tout le monde', translation: 'hello everyone' },
+          { speaker: 1, text: 'ceci est un test', translation: 'this is a test' },
+        ],
+        bufferText: 'et ensuite',
+        bufferTranslation: 'and then',
+        hasTranslation: true,
+        sourceLabel: 'FR',
+        targetLabel: 'EN',
+        status: 'Live',
+      });
+      const text = await waitForText(viewer, /hello everyone/, 6000);
+      if (!/and then/.test(text)) throw new Error('provisional buffer not rendered');
+      return 'translation + buffer visible';
+    });
+
+    await check('the phone can switch to what was actually spoken', async () => {
+      await viewer.webContents.executeJavaScript("document.getElementById('btn-lang').click()");
+      const text = await waitForText(viewer, /bonjour tout le monde/, 4000);
+      if (/hello everyone/.test(text)) throw new Error('still showing the translation');
+      return 'source text shown';
+    });
+
+    await check('a wrong key is refused', async () => {
+      const bad = new BrowserWindow({ show: false });
+      try {
+        await bad.loadURL(`http://127.0.0.1:8533/?k=WRONG1`);
+        const body = await bad.webContents.executeJavaScript('document.body.innerText');
+        if (!/access key/i.test(body)) throw new Error(`unexpected body: ${body.slice(0, 80)}`);
+        return 'rejected with an explanation';
+      } finally {
+        bad.destroy();
+      }
+    });
+  } catch (err) {
+    results.push({ name: 'phone smoke setup', ok: false, detail: err.message });
+  } finally {
+    if (viewer && !viewer.isDestroyed()) viewer.destroy();
+    await server.stop();
+  }
+
+  return results;
+}
+
+async function waitForText(window, pattern, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  let text = '';
+  while (Date.now() < deadline) {
+    text = await window.webContents.executeJavaScript('document.getElementById("captions").innerText');
+    if (pattern.test(text)) return text;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  throw new Error(`never matched ${pattern} (saw: ${text.slice(0, 80)})`);
+}
+
 // --------------------------------------------------------------------------
 // shutdown - the part that matters
 // --------------------------------------------------------------------------
@@ -372,12 +552,14 @@ function registerIpc() {
 let quitting = false;
 
 app.on('before-quit', async (event) => {
-  if (quitting || !sidecar || !sidecar.proc) return;
+  if (quitting) return;
+  if (!sidecar?.proc && !phone?.running) return;
   event.preventDefault();
   quitting = true;
   try {
-    await sidecar.stop();
+    await Promise.allSettled([sidecar?.stop(), phone?.stop()]);
   } finally {
+    updater?.dispose();
     app.quit();
   }
 });
