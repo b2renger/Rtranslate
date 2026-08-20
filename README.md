@@ -231,7 +231,21 @@ npm run release                # builds, tags, uploads a DRAFT release
 ```
 
 Publish the draft and every installed copy picks it up on next launch, or within
-six hours. To self-host instead of using GitHub, swap the `publish:` block in
+six hours.
+
+**One gotcha, hit on the first run:** electron-builder publishes the installer and
+its `.blockmap` through separate publisher instances. If the release does not
+exist yet, both can decide to create it, and you end up with **two draft
+releases** splitting the assets between them — which auto-update cannot use,
+since it needs `latest.yml`, the `.exe` and the `.blockmap` in one place. Create
+the release first and the publishers find it instead of racing:
+
+```powershell
+gh release create v0.1.1 --draft --title "0.1.1" --notes "..."
+npm run release
+```
+
+Afterwards, check there is exactly one release and it holds all three files. To self-host instead of using GitHub, swap the `publish:` block in
 `electron-builder.yml` for `provider: generic` and a URL, then copy the
 installer, `latest.yml` and the `.blockmap` there.
 
