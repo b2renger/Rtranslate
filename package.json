@@ -11,7 +11,7 @@
     "dev": "electron . --dev --devtools",
     "smoke": "electron . --smoke",
     "test": "node --test",
-    "bootstrap": "powershell -ExecutionPolicy Bypass -File scripts/bootstrap.ps1",
+    "profile": "node spike/profile.mjs",
     "dist": "electron-builder --win --publish never",
     "release": "electron-builder --win --publish always"
   },

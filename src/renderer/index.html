@@ -185,10 +185,12 @@
 
     <div class="drawer-body">
       <section class="group">
-        <p class="help lead">
-          Rtranslate needs a private Python environment with CUDA PyTorch. It is about
-          <strong>4 GB</strong> and lives in this app's own folder — your system Python,
-          if you have one, is not touched. This runs once.
+        <p class="help lead" id="setup-lead">
+          <!-- Filled from the engine's own setup description: one engine needs a
+               4 GB Python environment, another needs a few hundred MB of
+               prebuilt binaries, and the shell should not claim to know which. -->
+          This engine needs to install its runtime before it can transcribe.
+          It lives in this app's own folder and runs once.
         </p>
         <p class="help">
           Keep the machine awake and on a connection you do not pay by the gigabyte.

@@ -2,13 +2,11 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { app, BrowserWindow, ipcMain, session, desktopCapturer, dialog, shell } = require('electron');
 
-const { Sidecar } = require('./sidecar');
 const { Settings } = require('./settings');
-const { resolvePython, detectGpu, probe } = require('./pythonEnv');
-const { planSession, recommendModel, MODELS } = require('./profiles');
+const { detectGpu } = require('./gpu');
+const engines = require('./engines');
 const { PhoneServer } = require('./phoneServer');
 const { Updater } = require('./updater');
-const { EnvSetup } = require('./envSetup');
 const { LANGUAGES, AUTO_SOURCE } = require('../shared/languages.cjs');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
@@ -16,13 +14,42 @@ const IS_DEV = process.argv.includes('--dev') || !app.isPackaged;
 
 let win = null;
 let settings = null;
-let sidecar = null;
+let engine = null;              // the engine this session is using
+let engineBound = null;         // the id whose events we have already subscribed to
 let envReport = null;
 let loopbackEnabled = false;
 let phone = null;
 let updater = null;
-let envSetup = null;
 let sessionActive = false;
+
+/**
+ * The engine named in settings, or the best one this build ships.
+ *
+ * Resolution goes through the registry every time rather than being captured
+ * once, because settings can name an engine that only the other branch has -
+ * `registry.get` downgrades instead of throwing, and this keeps that the only
+ * place that decision is made.
+ */
+function currentEngine() {
+  const wanted = settings.get().engine;
+  const resolved = engines.get(wanted);
+
+  if (resolved.id !== engineBound) {
+    // Engine events are per-engine and long-lived. Clear all three before
+    // rebinding: switching A -> B -> A would otherwise leave A with a second
+    // set of listeners and send every log line to the renderer twice.
+    for (const event of ['state', 'log', 'crashed']) {
+      resolved.events?.removeAllListeners?.(event);
+    }
+    resolved.events?.on?.('state', (s) => send('engine:state-changed', s));
+    resolved.events?.on?.('log', (l) => send('engine:log', l));
+    resolved.events?.on?.('crashed', () => send('engine:crashed', {}));
+    engineBound = resolved.id;
+  }
+
+  engine = resolved;
+  return resolved;
+}
 
 // Single instance: two copies of this app would fight over the GPU.
 if (!app.requestSingleInstanceLock()) {
@@ -61,8 +88,9 @@ async function bootstrap() {
 
   updater.init();
 
-  // Inspecting the environment spawns Python, so do it after the window exists -
-  // the UI can show "checking..." instead of a blank screen.
+  // Inspecting can be slow - an engine may shell out to a runtime to find out
+  // whether it can run at all - so do it after the window exists, and let the
+  // UI show "checking..." instead of a blank screen.
   inspectEnvironment().then((report) => send('env:report', report));
 }
 
@@ -76,16 +104,31 @@ async function bootstrap() {
  *   npm start -- --smoke
  */
 /**
- * Optional --smoke-ws=<url>: run the full socket path against a stand-in server.
- * spike/mock_server.py speaks the documented protocol, so this exercises CSP,
- * binary frames and caption rendering without a GPU anywhere in sight.
+ * The socket half of the smoke test: real binary PCM frames in, rendered
+ * captions out, exercising CSP and the worklet with no GPU anywhere in sight.
+ *
+ * It used to need `spike/mock_server.py` started by hand in another terminal,
+ * so in practice it was usually skipped. The mock engine is in-process and
+ * speaks the same contract, so now it just runs. `--smoke-ws=<url>` still
+ * points it at something else - a real engine, to prove the same path works
+ * against the thing that will ship.
  */
-function smokeWsUrl() {
+async function smokeWsUrl() {
   const arg = process.argv.find((a) => a.startsWith('--smoke-ws='));
-  return arg ? arg.slice('--smoke-ws='.length) : null;
+  if (arg) return arg.slice('--smoke-ws='.length);
+
+  if (!engines.has('mock')) return null;
+  const mock = engines.get('mock');
+  const plan = mock.plan({ mockTranscriptLagSec: 0.2, mockTranslationLagSec: 0.4 }, 'fr', 'en');
+  const { port } = await mock.ensure(plan);
+  return `ws://127.0.0.1:${port}/asr?${plan.query}`;
 }
 
 async function runSmoke() {
+  // Resolved before the script is built: starting the mock engine is async, and
+  // the URL has to be a literal by the time this string reaches the renderer.
+  const smokeWs = await smokeWsUrl();
+
   const script = `(async () => {
     const results = [];
     const check = async (name, fn) => {
@@ -147,7 +190,7 @@ async function runSmoke() {
       return 'committed + provisional, both fields';
     });
 
-    const wsUrl = ${JSON.stringify(smokeWsUrl())};
+    const wsUrl = ${JSON.stringify(smokeWs)};
     if (wsUrl) {
       let socket = null;
       await check('WebSocket connects (CSP allows localhost)', () => new Promise((resolve, reject) => {
@@ -269,39 +312,33 @@ async function qrFor(url) {
 // --------------------------------------------------------------------------
 
 async function inspectEnvironment() {
-  const pythonExe = resolvePython(REPO_ROOT);
-  const [gpu, py] = await Promise.all([detectGpu(), probe(pythonExe)]);
+  const active = currentEngine();
+  const [gpu, health] = await Promise.all([detectGpu(), active.inspect()]);
 
-  const vramGiB = py.info?.vramGiB ?? gpu?.vramTotalGiB ?? null;
+  // The engine may know the VRAM figure better than nvidia-smi does - it is the
+  // thing that will actually allocate it - so let it override.
+  const vramGiB = health.info?.vramGiB ?? gpu?.vramTotalGiB ?? null;
+  const recommendedModel = active.recommendModel?.(vramGiB) ?? null;
+
   envReport = {
-    pythonExe,
+    engine: { id: active.id, label: active.label, capabilities: active.capabilities || {} },
+    engines: engines.list(),
     gpu,
-    python: py,
+    health,
     vramGiB,
-    recommendedModel: recommendModel(vramGiB),
+    recommendedModel,
+    hasSetup: Boolean(active.setup),
     repoRoot: REPO_ROOT,
     isDev: IS_DEV,
   };
 
-  if (py.ok && pythonExe) {
-    // Re-inspection after first-run setup can land here with an older sidecar
-    // still bound to an environment that did not exist. Retire it first.
-    if (sidecar) {
-      if (sidecar.pythonExe === pythonExe) return envReport;
-      await sidecar.stop().catch(() => {});
-      sidecar.removeAllListeners();
-    }
-    sidecar = new Sidecar({ pythonExe });
-    sidecar.on('state', (s) => send('sidecar:state-changed', s));
-    sidecar.on('log', (l) => send('sidecar:log', l));
-    sidecar.on('diagnosis', (d) => send('sidecar:log', { stream: 'app', line: `${d.message} ${d.hint || ''}`, at: Date.now() }));
-    sidecar.on('crashed', () => send('sidecar:crashed', {}));
-  }
-
   // First run on an unknown card: pick a model that will actually load rather
-  // than letting the user meet an out-of-memory error mid-sentence.
-  if (!settings.get()._modelChosen && envReport.recommendedModel) {
-    settings.patch({ model: envReport.recommendedModel, _modelChosen: true });
+  // than letting the user meet an out-of-memory error mid-sentence. Keyed by
+  // engine, because a model that fits one engine's runtime need not fit the
+  // other's.
+  const chosenFor = settings.get()._modelChosenFor;
+  if (recommendedModel && chosenFor !== active.id) {
+    settings.patch({ model: recommendedModel, _modelChosenFor: active.id });
   }
 
   return envReport;
@@ -314,29 +351,48 @@ async function inspectEnvironment() {
 function registerIpc() {
   ipcMain.handle('env:inspect', async () => envReport || (await inspectEnvironment()));
   ipcMain.handle('env:languages', () => ({ languages: LANGUAGES, auto: AUTO_SOURCE }));
-  ipcMain.handle('env:models', () => MODELS);
+  ipcMain.handle('env:models', () => currentEngine().models?.() || []);
+  ipcMain.handle('engine:list', () => engines.list());
+  ipcMain.handle('engine:select', async (_e, { id }) => {
+    if (!engines.has(id)) return { ok: false, message: `This build has no engine "${id}".` };
+    if (engine && engine.id !== id) await engine.stop().catch(() => {});
+    settings.patch({ engine: id });
+    const report = await inspectEnvironment();
+    send('env:report', report);
+    return { ok: true, report };
+  });
 
   ipcMain.handle('settings:get', () => settings.get());
   ipcMain.handle('settings:patch', (_e, partial) => settings.patch(partial || {}));
   ipcMain.handle('settings:reset', () => settings.reset());
 
   ipcMain.handle('session:plan', (_e, { sourceId, targetId }) => {
-    const plan = planSession(settings.get(), sourceId, targetId);
-    const needsRestart = Boolean(sidecar) && sidecar.state === 'ready' && sidecar.currentKey !== plan.profileKey;
-    return { ...plan, needsRestart, sidecarState: sidecar?.state || 'unavailable' };
+    const active = currentEngine();
+    const plan = active.plan(settings.get(), sourceId, targetId);
+    const state = active.state();
+
+    // Only the engine knows whether this plan means restarting a process, and
+    // the UI says so before the user touches anything.
+    const needsRestart = state === 'ready' && active.currentKey?.() !== plan.profileKey;
+    return { ...plan, needsRestart, engineState: state, engineId: active.id };
   });
 
   ipcMain.handle('session:start', async (_e, { sourceId, targetId }) => {
-    if (!sidecar) {
-      return { ok: false, error: envReport?.python?.error || 'no-python', message: envReport?.python?.message };
+    const active = currentEngine();
+
+    const health = await active.inspect();
+    if (!health.ok) {
+      return { ok: false, error: health.problem || 'engine-unavailable', message: health.message };
     }
-    const plan = planSession(settings.get(), sourceId, targetId);
+
+    const plan = active.plan(settings.get(), sourceId, targetId);
     try {
-      const { port, restarted } = await sidecar.ensure(plan.serverArgs);
+      const { port, restarted } = await active.ensure(plan);
       return {
         ok: true,
         port,
         restarted,
+        engineId: active.id,
         url: `ws://127.0.0.1:${port}/asr?${plan.query}`,
         display: plan.display,
         route: plan.route,
@@ -346,23 +402,22 @@ function registerIpc() {
         ok: false,
         error: 'start-failed',
         message: err.message,
-        diagnosis: sidecar.lastError || null,
-        recentLog: sidecar.log.slice(-25),
+        diagnosis: active.lastError?.() || null,
+        recentLog: active.logs().slice(-25),
       };
     }
   });
 
   ipcMain.handle('session:stop', async () => {
-    if (sidecar) await sidecar.stop();
+    if (engine) await engine.stop();
     return { ok: true };
   });
 
-  ipcMain.handle('sidecar:state', () => ({
-    state: sidecar?.state || 'unavailable',
-    port: sidecar?.port || null,
-    key: sidecar?.currentKey || null,
-  }));
-  ipcMain.handle('sidecar:logs', () => sidecar?.log || []);
+  ipcMain.handle('engine:state', () => {
+    const active = currentEngine();
+    return { state: active.state(), port: active.port?.() ?? null, key: active.currentKey?.() ?? null };
+  });
+  ipcMain.handle('engine:logs', () => currentEngine().logs());
 
   // --- system audio loopback ---------------------------------------------
   // The modern, supported path: a display-media handler that asks Chromium for
@@ -395,20 +450,26 @@ function registerIpc() {
     return { ok: true };
   });
 
-  // --- first-run environment setup ----------------------------------------
-  ipcMain.handle('env:setup-steps', () => new EnvSetup({ userDataDir: app.getPath('userData') }).steps);
+  // --- first-run setup ------------------------------------------------------
+  //
+  // Optional, and owned by the engine: one candidate has to build a 4 GB Python
+  // environment before it can transcribe a word, the other and the mock have
+  // nothing to install. An engine with no `setup` reports no steps, and the
+  // renderer hides the pane rather than offering a button that does nothing.
+  ipcMain.handle('env:setup-steps', () => currentEngine().setup?.steps({ userDataDir: app.getPath('userData') }) || []);
 
   ipcMain.handle('env:setup-start', async (_e, opts) => {
-    if (envSetup?.running) return { ok: false, message: 'Setup is already running.' };
+    const setup = currentEngine().setup;
+    if (!setup) return { ok: false, message: 'This engine has nothing to set up.' };
+    if (setup.running()) return { ok: false, message: 'Setup is already running.' };
 
-    envSetup = new EnvSetup({
+    const result = await setup.start({
       userDataDir: app.getPath('userData'),
-      cudaTag: opts?.cudaTag || null,
+      ...opts,
+      onProgress: (p) => send('env:setup-progress', p),
+      onLog: (l) => send('env:setup-log', l),
     });
-    envSetup.on('progress', (p) => send('env:setup-progress', p));
-    envSetup.on('log', (l) => send('env:setup-log', l));
 
-    const result = await envSetup.start();
     if (result.ok) {
       // Re-inspect so the rest of the app picks the new environment up without
       // needing a restart.
@@ -420,7 +481,7 @@ function registerIpc() {
   });
 
   ipcMain.handle('env:setup-cancel', () => {
-    envSetup?.cancel();
+    currentEngine().setup?.cancel();
     return { ok: true };
   });
 
@@ -589,13 +650,19 @@ async function waitForText(window, pattern, timeoutMs) {
 
 let quitting = false;
 
+/** An engine holding VRAM is the thing we must never leak, whichever one it is. */
+function engineIsRunning() {
+  const state = engine?.state?.();
+  return state === 'ready' || state === 'starting' || state === 'stopping';
+}
+
 app.on('before-quit', async (event) => {
   if (quitting) return;
-  if (!sidecar?.proc && !phone?.running) return;
+  if (!engineIsRunning() && !phone?.running) return;
   event.preventDefault();
   quitting = true;
   try {
-    await Promise.allSettled([sidecar?.stop(), phone?.stop()]);
+    await Promise.allSettled([engine?.stop(), phone?.stop()]);
   } finally {
     updater?.dispose();
     app.quit();
@@ -603,16 +670,19 @@ app.on('before-quit', async (event) => {
 });
 
 // Belt and braces: if we are torn down without before-quit completing (crash,
-// SIGINT in dev, Windows session end), still take the CUDA process with us.
-app.on('will-quit', () => {
-  sidecar?.killNow();
-  envSetup?.cancel();
-});
-process.on('exit', () => sidecar?.killNow());
+// SIGINT in dev, Windows session end), still take the GPU process with us.
+// `killNow` must be synchronous - nothing async survives an 'exit' handler -
+// so engines that own a child process implement it and the rest do not.
+function killEverythingNow() {
+  engine?.killNow?.();
+  engine?.setup?.cancel?.();
+}
+
+app.on('will-quit', killEverythingNow);
+process.on('exit', killEverythingNow);
 for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
   process.on(signal, () => {
-    sidecar?.killNow();
-    envSetup?.cancel();
+    killEverythingNow();
     process.exit(0);
   });
 }

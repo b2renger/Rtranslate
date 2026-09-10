@@ -111,9 +111,41 @@ function preferred() {
   return engines.find((e) => e.id !== 'mock') || engines[0] || null;
 }
 
+/**
+ * Every engine's default settings, merged.
+ *
+ * All engines share one settings object rather than one each, because most of
+ * what is in it - model size, translation on or off - means the same thing to
+ * both. Collecting the defaults here means a setting only the other branch's
+ * engine uses still gets a sane value rather than `undefined`, which is what
+ * makes a settings file portable across the two branches.
+ *
+ * Collisions are a design error, not a merge: two engines wanting different
+ * defaults for one key means the key means two different things, and it should
+ * be two keys.
+ */
+function defaults() {
+  const merged = {};
+  const seen = new Map();
+
+  for (const engine of load().values()) {
+    for (const [key, value] of Object.entries(engine.defaultSettings || {})) {
+      if (seen.has(key) && seen.get(key) !== value) {
+        throw new Error(
+          `Engines disagree on the default for "${key}": ` +
+          `${seen.get(key)} vs ${value}. If it means different things to each, give it two names.`,
+        );
+      }
+      seen.set(key, value);
+      merged[key] = value;
+    }
+  }
+  return merged;
+}
+
 /** Tests mutate the directory; let them start clean. */
 function reset() {
   cache = null;
 }
 
-module.exports = { list, get, has, preferred, reset };
+module.exports = { list, get, has, preferred, defaults, reset };

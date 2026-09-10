@@ -4,9 +4,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { app } = require('electron');
 
-const { DEFAULT_SETTINGS } = require('./profiles');
+const engines = require('./engines');
 
 const SESSION_DEFAULTS = {
+  // null means "whichever engine this build considers best". Naming one here
+  // would bake a branch's engine into the shell, which is the coupling the
+  // registry exists to remove.
+  engine: null,
+
   sourceId: 'fr',
   targetId: 'fr',
   deviceId: 'default',
@@ -23,7 +28,7 @@ const SESSION_DEFAULTS = {
 class Settings {
   constructor() {
     this.file = path.join(app.getPath('userData'), 'settings.json');
-    this.data = { ...DEFAULT_SETTINGS, ...SESSION_DEFAULTS };
+    this.data = { ...engines.defaults(), ...SESSION_DEFAULTS };
     this.load();
   }
 
@@ -33,7 +38,7 @@ class Settings {
       const parsed = JSON.parse(raw);
       // Merge rather than replace, so a new setting added in a later version
       // gets its default instead of undefined.
-      this.data = { ...DEFAULT_SETTINGS, ...SESSION_DEFAULTS, ...parsed };
+      this.data = { ...engines.defaults(), ...SESSION_DEFAULTS, ...parsed };
     } catch {
       /* first run, or the file was hand-edited into invalid JSON */
     }
@@ -60,7 +65,7 @@ class Settings {
   }
 
   reset() {
-    this.data = { ...DEFAULT_SETTINGS, ...SESSION_DEFAULTS };
+    this.data = { ...engines.defaults(), ...SESSION_DEFAULTS };
     this.save();
     return this.get();
   }

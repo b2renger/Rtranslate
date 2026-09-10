@@ -53,6 +53,7 @@ const el = {
   updateDismiss: $('update-dismiss'),
   setup: $('setup'),
   setupSteps: $('setup-steps'),
+  setupLead: $('setup-lead'),
   setupStart: $('setup-start'),
   setupCancel: $('setup-cancel'),
   setupSummary: $('setup-summary'),
@@ -97,8 +98,8 @@ async function init() {
   bindUpdates();
   await bindSetup();
 
-  window.rt.sidecar.onState(onSidecarState);
-  window.rt.sidecar.onLog(appendLog);
+  window.rt.engine.onState(onSidecarState);
+  window.rt.engine.onLog(appendLog);
   window.rt.env.onReport(applyEnvReport);
 
   await refreshDevices();
@@ -115,17 +116,18 @@ function applyEnvReport(env) {
   state.env = env;
   renderEnvTable(env);
 
-  // Missing or broken environments are all the same problem from the user's
-  // side, and all have the same fix: run setup. Offer it rather than describing
-  // a command to type somewhere else.
-  const fixable = ['no-python', 'no-whisperlivekit', 'no-torch'];
-  const problem = !env.pythonExe ? 'no-python' : env.python.ok ? null : env.python.error;
+  const health = env.health || { ok: false, message: 'No engine reported in.' };
+  const problem = health.ok ? null : (health.problem || 'engine-unavailable');
 
-  if (problem && fixable.includes(problem)) {
-    setStatus('bad', errorLabel(problem));
+  // A broken engine is one problem from the user's side, whatever the engine
+  // says went wrong, and it has one fix: run that engine's setup. Offer the
+  // button rather than describing a command to type somewhere else. Engines
+  // with nothing to install have no setup, and then there is nothing to offer.
+  if (problem && env.hasSetup) {
+    setStatus('bad', errorLabel(health));
     showBanner(
-      problem === 'no-python' ? 'Rtranslate needs to finish setting up' : errorLabel(problem),
-      'A one-time download of about 4 GB installs the transcription engine into this app\'s own folder.',
+      health.title || 'Rtranslate needs to finish setting up',
+      health.fixHint || 'A one-time download installs the transcription engine into this app’s own folder.',
       { label: 'Set up', onClick: () => openDrawer(el.setup) },
     );
     el.btnStart.disabled = true;
@@ -134,8 +136,8 @@ function applyEnvReport(env) {
   }
 
   if (problem) {
-    setStatus('bad', errorLabel(problem));
-    showBanner(errorLabel(problem), env.python.message || 'See the log for details.');
+    setStatus('bad', errorLabel(health));
+    showBanner(errorLabel(health), health.message || 'See the log for details.');
     el.btnStart.disabled = true;
     return;
   }
@@ -143,38 +145,39 @@ function applyEnvReport(env) {
   setStatus('ok', 'Ready');
   el.btnStart.disabled = false;
 
-  const vram = env.python.info?.vramGiB;
+  const vram = env.vramGiB;
   if (vram && vram < 7.5) {
     showBanner(
-      `${env.python.info.device || 'This GPU'} has ${vram.toFixed(1)} GiB of VRAM`,
-      'large-v3 will not fit on the AlignAtt path. The model has been set to something that will load; change it in Settings if you disagree.',
+      `${env.gpu?.name || 'This GPU'} has ${vram.toFixed(1)} GiB of VRAM`,
+      'The largest models will not fit. The model has been set to something that will load; change it in Settings if you disagree.',
     );
   }
 }
 
-function errorLabel(code) {
+/**
+ * Engines name their own failures, because only they know them. The shell
+ * translates the handful it can act on, and otherwise repeats what it was told
+ * rather than flattening everything to "Environment problem".
+ */
+function errorLabel(health) {
+  const code = typeof health === 'string' ? health : health?.problem;
   return (
     {
-      'no-python': 'No Python environment',
-      'no-whisperlivekit': 'WhisperLiveKit not installed',
-      'no-torch': 'PyTorch not installed',
-      'no-cuda': 'No CUDA device',
-      'probe-failed': 'Python could not start',
-      'probe-unparseable': 'Unexpected Python output',
-    }[code] || 'Environment problem'
+      'engine-broken': 'This engine failed to load',
+      'engine-unavailable': 'No engine available',
+    }[code] || (typeof health === 'object' && health?.label) || code || 'Engine problem'
   );
 }
 
 function renderEnvTable(env) {
-  const info = env.python?.info || {};
+  // The engine decides what is worth showing about itself; the shell adds only
+  // what it measured for itself.
   const rows = [
-    ['Python', info.python || '—'],
-    ['torch', info.torch ? `${info.torch} (cuda ${info.cudaBuild})` : '—'],
-    ['whisperlivekit', info.whisperlivekit || '—'],
-    ['GPU', info.device || env.gpu?.name || 'none detected'],
-    ['VRAM', info.vramGiB ? `${info.vramGiB} GiB` : env.gpu ? `${(env.gpu.vramTotalGiB || 0).toFixed(1)} GiB` : '—'],
+    ['Engine', env.engine?.label || '—'],
+    ...Object.entries(env.health?.info || {}).map(([k, v]) => [k, v == null || v === '' ? '—' : String(v)]),
+    ['GPU', env.gpu?.name || 'none detected'],
+    ['VRAM', env.gpu ? `${(env.gpu.vramTotalGiB || 0).toFixed(1)} GiB` : '—'],
     ['Driver', env.gpu?.driver || '—'],
-    ['Env path', env.pythonExe || 'not found'],
   ];
   el.envKv.replaceChildren();
   for (const [key, value] of rows) {
@@ -278,7 +281,7 @@ function bindControls() {
   });
 
   $('btn-logs').addEventListener('click', async () => {
-    const logs = await window.rt.sidecar.logs();
+    const logs = await window.rt.engine.logs();
     el.logBody.replaceChildren();
     logs.forEach(appendLog);
     openDrawer(el.logs);
@@ -370,7 +373,7 @@ function bindSettingsValues() {
 
 function updateModelHelp() {
   const model = state.models.find((m) => m.id === state.settings.model);
-  const vram = state.env?.python?.info?.vramGiB;
+  const vram = state.env?.vramGiB;
   const help = $('model-help');
   if (!model) return;
   let text = `Wants roughly ${model.minVramGiB} GiB of VRAM on the AlignAtt path.`;
@@ -609,6 +612,12 @@ async function closeSocket() {
 async function bindSetup() {
   const steps = await window.rt.env.setupSteps();
   renderSetupSteps(steps);
+
+  // The engine describes its own install. The shell knows neither what it
+  // downloads nor how big it is, and guessing would age badly the moment the
+  // other engine ships.
+  const lead = state.env?.health?.setupLead;
+  if (lead && el.setupLead) el.setupLead.textContent = lead;
 
   $('btn-setup-close').addEventListener('click', closeDrawers);
 

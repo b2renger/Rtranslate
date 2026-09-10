@@ -37,12 +37,14 @@ contextBridge.exposeInMainWorld('rt', {
     stop: () => ipcRenderer.invoke('session:stop'),
   },
 
-  // --- sidecar telemetry ---------------------------------------------------
-  sidecar: {
-    state: () => ipcRenderer.invoke('sidecar:state'),
-    logs: () => ipcRenderer.invoke('sidecar:logs'),
-    onState: (cb) => subscribe('sidecar:state-changed', cb),
-    onLog: (cb) => subscribe('sidecar:log', cb),
+  // --- engine: which one, and what it is doing -----------------------------
+  engine: {
+    list: () => ipcRenderer.invoke('engine:list'),
+    select: (id) => ipcRenderer.invoke('engine:select', { id }),
+    state: () => ipcRenderer.invoke('engine:state'),
+    logs: () => ipcRenderer.invoke('engine:logs'),
+    onState: (cb) => subscribe('engine:state-changed', cb),
+    onLog: (cb) => subscribe('engine:log', cb),
   },
 
   // --- system audio (experimental on Windows) ------------------------------
