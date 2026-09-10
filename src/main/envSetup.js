@@ -410,7 +410,7 @@ function download(url, dest, onProgress, redirects = 0) {
     if (redirects > 8) return reject(new Error('Too many redirects.'));
 
     https
-      .get(url, { headers: { 'User-Agent': 'WhisperLive' } }, (res) => {
+      .get(url, { headers: { 'User-Agent': 'Rtranslate' } }, (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           res.resume();
           return resolve(download(new URL(res.headers.location, url).toString(), dest, onProgress, redirects + 1));

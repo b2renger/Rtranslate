@@ -1,5 +1,5 @@
 /**
- * WhisperLive renderer: wires the three selectors to a sidecar session and a
+ * Rtranslate renderer: wires the three selectors to a sidecar session and a
  * WebSocket, and keeps the caption surface honest about what is happening.
  *
  * The one structural decision worth knowing: audio capture and the WebSocket
@@ -81,9 +81,9 @@ init().catch((err) => showBanner('Startup failed', err.message));
 
 async function init() {
   const [langs, models, settings] = await Promise.all([
-    window.wl.env.languages(),
-    window.wl.env.models(),
-    window.wl.settings.get(),
+    window.rt.env.languages(),
+    window.rt.env.models(),
+    window.rt.settings.get(),
   ]);
   state.languages = langs.languages;
   state.auto = langs.auto;
@@ -97,15 +97,15 @@ async function init() {
   bindUpdates();
   await bindSetup();
 
-  window.wl.sidecar.onState(onSidecarState);
-  window.wl.sidecar.onLog(appendLog);
-  window.wl.env.onReport(applyEnvReport);
+  window.rt.sidecar.onState(onSidecarState);
+  window.rt.sidecar.onLog(appendLog);
+  window.rt.env.onReport(applyEnvReport);
 
   await refreshDevices();
   navigator.mediaDevices?.addEventListener?.('devicechange', refreshDevices);
 
   setStatus('busy', 'Checking environment…');
-  state.env = await window.wl.env.inspect();
+  state.env = await window.rt.env.inspect();
   applyEnvReport(state.env);
 
   await updateRouteNote();
@@ -124,7 +124,7 @@ function applyEnvReport(env) {
   if (problem && fixable.includes(problem)) {
     setStatus('bad', errorLabel(problem));
     showBanner(
-      problem === 'no-python' ? 'WhisperLive needs to finish setting up' : errorLabel(problem),
+      problem === 'no-python' ? 'Rtranslate needs to finish setting up' : errorLabel(problem),
       'A one-time download of about 4 GB installs the transcription engine into this app\'s own folder.',
       { label: 'Set up', onClick: () => openDrawer(el.setup) },
     );
@@ -225,14 +225,14 @@ function bindControls() {
   el.btnStart.addEventListener('click', () => (state.running ? stopSession() : startSession()));
 
   el.selSpoken.addEventListener('change', async () => {
-    await window.wl.settings.patch({ sourceId: el.selSpoken.value });
+    await window.rt.settings.patch({ sourceId: el.selSpoken.value });
     state.settings.sourceId = el.selSpoken.value;
     await updateRouteNote();
     if (state.running) await retarget();
   });
 
   el.selDisplay.addEventListener('change', async () => {
-    await window.wl.settings.patch({ targetId: el.selDisplay.value });
+    await window.rt.settings.patch({ targetId: el.selDisplay.value });
     state.settings.targetId = el.selDisplay.value;
     await updateRouteNote();
     if (state.running) await retarget();
@@ -243,7 +243,7 @@ function bindControls() {
     const patch = value === '__system__'
       ? { captureMode: 'system', deviceId: 'system' }
       : { captureMode: 'mic', deviceId: value };
-    await window.wl.settings.patch(patch);
+    await window.rt.settings.patch(patch);
     Object.assign(state.settings, patch);
     if (state.running) {
       // Changing the input device means re-opening the capture graph.
@@ -273,12 +273,12 @@ function bindControls() {
     const text = state.transcript.toPlainText();
     if (!text) return flashStatus('Nothing to save yet');
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const res = await window.wl.shell.saveTranscript({ text, suggestedName: `whisperlive-${stamp}.txt` });
+    const res = await window.rt.shell.saveTranscript({ text, suggestedName: `rtranslate-${stamp}.txt` });
     if (res.ok) flashStatus(`Saved to ${res.filePath}`);
   });
 
   $('btn-logs').addEventListener('click', async () => {
-    const logs = await window.wl.sidecar.logs();
+    const logs = await window.rt.sidecar.logs();
     el.logBody.replaceChildren();
     logs.forEach(appendLog);
     openDrawer(el.logs);
@@ -322,7 +322,7 @@ function bindSettings() {
   const wire = (id, key, read) =>
     $(id).addEventListener('change', async () => {
       const value = read($(id));
-      state.settings = await window.wl.settings.patch({ [key]: value });
+      state.settings = await window.rt.settings.patch({ [key]: value });
       updateModelHelp();
       await updateRouteNote();
       if (state.running) await retarget();
@@ -341,13 +341,13 @@ function bindSettings() {
     $('ft-value').textContent = `${e.target.value} · ${(Number(e.target.value) * 0.02).toFixed(2)} s`;
   });
   $('set-ft').addEventListener('change', async (e) => {
-    state.settings = await window.wl.settings.patch({ frameThreshold: Number(e.target.value) });
+    state.settings = await window.rt.settings.patch({ frameThreshold: Number(e.target.value) });
     await updateRouteNote();
     if (state.running) await retarget();
   });
 
   $('btn-reset').addEventListener('click', async () => {
-    state.settings = await window.wl.settings.reset();
+    state.settings = await window.rt.settings.reset();
     bindSettingsValues();
     buildLanguageSelectors();
     await updateRouteNote();
@@ -386,7 +386,7 @@ function updateModelHelp() {
 // ------------------------------------------------------------- route note
 
 async function updateRouteNote() {
-  const plan = await window.wl.session.plan(el.selSpoken.value, el.selDisplay.value);
+  const plan = await window.rt.session.plan(el.selSpoken.value, el.selDisplay.value);
   state.lastRoute = plan;
 
   const fast = !plan.route.useNllb;
@@ -421,7 +421,7 @@ async function startSession() {
 
   try {
     setStatus('busy', 'Starting server…');
-    const res = await window.wl.session.start(el.selSpoken.value, el.selDisplay.value);
+    const res = await window.rt.session.start(el.selSpoken.value, el.selDisplay.value);
     if (!res.ok) {
       setStatus('bad', 'Server failed');
       showBanner(
@@ -455,7 +455,7 @@ async function startSession() {
     });
 
     state.running = true;
-    window.wl.setSessionActive(true);
+    window.rt.setSessionActive(true);
     el.btnStart.textContent = 'Stop';
     el.btnStart.classList.add('stop');
     el.liveDot.classList.add('live');
@@ -473,11 +473,11 @@ async function startSession() {
 
 async function stopSession({ keepTranscript = true, silent = false } = {}) {
   state.running = false;
-  window.wl.setSessionActive(false);
+  window.rt.setSessionActive(false);
   // Tell any phones the room went quiet, rather than leaving them showing a
   // live-looking screen that has silently stopped updating.
   if (broadcastPending || !state.transcript.isEmpty()) {
-    window.wl.phone.broadcast({
+    window.rt.phone.broadcast({
       lines: state.transcript.lines.map((l) => ({ speaker: l.speaker, text: l.text || '', translation: l.translation || '' })),
       bufferText: '',
       bufferTranslation: '',
@@ -509,7 +509,7 @@ async function retarget() {
     setStatus('busy', plan.needsRestart ? 'Reloading model…' : 'Switching…');
     await closeSocket();
 
-    const res = await window.wl.session.start(el.selSpoken.value, el.selDisplay.value);
+    const res = await window.rt.session.start(el.selSpoken.value, el.selDisplay.value);
     if (!res.ok) {
       setStatus('bad', 'Server failed');
       showBanner(
@@ -607,7 +607,7 @@ async function closeSocket() {
 // ------------------------------------------------------- first-run setup
 
 async function bindSetup() {
-  const steps = await window.wl.env.setupSteps();
+  const steps = await window.rt.env.setupSteps();
   renderSetupSteps(steps);
 
   $('btn-setup-close').addEventListener('click', closeDrawers);
@@ -619,7 +619,7 @@ async function bindSetup() {
     el.setupLog.replaceChildren();
     renderSetupSteps(steps);
 
-    const result = await window.wl.env.setupStart({});
+    const result = await window.rt.env.setupStart({});
 
     el.setupStart.disabled = false;
     el.setupCancel.hidden = true;
@@ -639,11 +639,11 @@ async function bindSetup() {
 
   el.setupCancel.addEventListener('click', async () => {
     el.setupCancel.disabled = true;
-    await window.wl.env.setupCancel();
+    await window.rt.env.setupCancel();
     el.setupCancel.disabled = false;
   });
 
-  window.wl.env.onSetupProgress((p) => {
+  window.rt.env.onSetupProgress((p) => {
     if (p.index < 0) {
       // A whole-run failure, not a step failure.
       el.setupSummary.textContent = p.detail || 'Setup stopped.';
@@ -659,7 +659,7 @@ async function bindSetup() {
     detail.hidden = !p.detail;
   });
 
-  window.wl.env.onSetupLog((entry) => {
+  window.rt.env.onSetupLog((entry) => {
     const line = document.createElement('span');
     line.textContent = `${entry.line}\n`;
     el.setupLog.append(line);
@@ -718,7 +718,7 @@ function sendBroadcast(msg) {
   const hasTranslation = display.primaryField === 'translation';
   const label = (id) => state.languages.find((l) => l.id === id)?.short || id.toUpperCase();
 
-  window.wl.phone.broadcast({
+  window.rt.phone.broadcast({
     lines: (msg.lines || []).map((l) => ({
       speaker: l.speaker,
       text: l.text || '',
@@ -745,7 +745,7 @@ function bindPhone() {
   el.phoneToggle.addEventListener('change', async () => {
     if (el.phoneToggle.checked) {
       el.phoneFirewall.hidden = false;
-      const res = await window.wl.phone.start(Number(el.phonePort.value) || 8420);
+      const res = await window.rt.phone.start(Number(el.phonePort.value) || 8420);
       if (!res.ok) {
         el.phoneToggle.checked = false;
         showBanner('Could not start the phone display', res.message);
@@ -753,7 +753,7 @@ function bindPhone() {
       }
       applyPhoneInfo(res);
     } else {
-      await window.wl.phone.stop();
+      await window.rt.phone.stop();
       applyPhoneInfo({ running: false });
     }
   });
@@ -761,7 +761,7 @@ function bindPhone() {
   el.phoneAddress.addEventListener('change', async () => {
     const url = el.phoneAddress.value;
     el.phoneUrl.textContent = url;
-    const { qr } = await window.wl.phone.qr(url);
+    const { qr } = await window.rt.phone.qr(url);
     if (qr) el.phoneQr.src = qr;
   });
 
@@ -772,10 +772,10 @@ function bindPhone() {
 
   el.phonePort.addEventListener('change', async () => {
     const port = Number(el.phonePort.value) || 8420;
-    state.settings = await window.wl.settings.patch({ phonePort: port });
+    state.settings = await window.rt.settings.patch({ phonePort: port });
     if (el.phoneToggle.checked) {
-      await window.wl.phone.stop();
-      const res = await window.wl.phone.start(port);
+      await window.rt.phone.stop();
+      const res = await window.rt.phone.start(port);
       if (!res.ok) {
         el.phoneToggle.checked = false;
         showBanner('Could not restart the phone display', res.message);
@@ -785,12 +785,12 @@ function bindPhone() {
     }
   });
 
-  window.wl.phone.onClients((info) => applyPhoneInfo(info));
-  window.wl.phone.onError((e) => showBanner('Phone display error', e.message));
+  window.rt.phone.onClients((info) => applyPhoneInfo(info));
+  window.rt.phone.onError((e) => showBanner('Phone display error', e.message));
 }
 
 async function refreshPhone() {
-  applyPhoneInfo(await window.wl.phone.info());
+  applyPhoneInfo(await window.rt.phone.info());
 }
 
 function applyPhoneInfo(info) {
@@ -829,19 +829,19 @@ function applyPhoneInfo(info) {
 // --------------------------------------------------------------- updates
 
 function bindUpdates() {
-  window.wl.update.onStatus(applyUpdateStatus);
-  window.wl.update.status().then(applyUpdateStatus);
+  window.rt.update.onStatus(applyUpdateStatus);
+  window.rt.update.status().then(applyUpdateStatus);
 
   el.updateDismiss.addEventListener('click', () => {
     el.updateBar.hidden = true;
   });
 
   el.updateInstall.addEventListener('click', async () => {
-    let res = await window.wl.update.install();
+    let res = await window.rt.update.install();
     if (res.needsConfirm) {
       // Never cut someone off mid-conversation without asking.
       if (!confirm(`${res.message}\n\nInstall now anyway?`)) return;
-      res = await window.wl.update.install({ force: true });
+      res = await window.rt.update.install({ force: true });
     }
     if (!res.ok) showBanner('Could not install the update', res.message);
   });

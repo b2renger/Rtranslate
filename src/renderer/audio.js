@@ -175,7 +175,7 @@ async function captureMicrophone(deviceId) {
  * path has a long history of NotSupportedError and renderer crashes on Windows.
  */
 async function captureSystemAudio() {
-  const enabled = await window.wl.capture.enableLoopback();
+  const enabled = await window.rt.capture.enableLoopback();
   if (!enabled.ok) throw new Error(enabled.message || 'System audio capture is unavailable.');
 
   let stream;

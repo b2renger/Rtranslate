@@ -94,8 +94,8 @@ async function runSmoke() {
     };
 
     await check('preload bridge', () => {
-      if (!window.wl) throw new Error('window.wl is missing');
-      return Object.keys(window.wl).join(', ');
+      if (!window.rt) throw new Error('window.rt is missing');
+      return Object.keys(window.rt).join(', ');
     });
 
     await check('renderer modules import', async () => {
@@ -219,7 +219,7 @@ async function createWindow() {
     minHeight: 460,
     backgroundColor: '#12161a',
     autoHideMenuBar: true,
-    title: 'WhisperLive',
+    title: 'Rtranslate',
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
       contextIsolation: true,

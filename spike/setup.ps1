@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Phase 0 environment setup for the WhisperLive spike.
+    Phase 0 environment setup for the Rtranslate spike.
 
 .DESCRIPTION
     Creates a Python 3.12 venv with uv, installs WhisperLiveKit with the CUDA

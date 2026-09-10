@@ -5,7 +5,7 @@ const { contextBridge, ipcRenderer } = require('electron');
  * everything that spawns a process, reads the filesystem or talks to the GPU
  * lives in main.
  */
-contextBridge.exposeInMainWorld('wl', {
+contextBridge.exposeInMainWorld('rt', {
   // --- environment ---------------------------------------------------------
   env: {
     inspect: () => ipcRenderer.invoke('env:inspect'),

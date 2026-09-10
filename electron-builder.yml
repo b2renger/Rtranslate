@@ -1,5 +1,5 @@
-appId: com.b2renger.whisperlive
-productName: WhisperLive
+appId: com.b2renger.rtranslate
+productName: Rtranslate
 copyright: Copyright © 2026 b2renger
 
 directories:
@@ -34,7 +34,7 @@ nsis:
 # installer plus latest.yml attached is all a running app needs to find it.
 #
 #   1. Create the repo and push:
-#        gh repo create b2renger/WhisperLive --private --source=. --remote=origin
+#        gh repo create b2renger/Rtranslate --private --source=. --remote=origin
 #        git push -u origin main
 #   2. Set a token with repo scope:  $env:GH_TOKEN = "ghp_..."
 #   3. Bump "version" in package.json, then:  npm run release
@@ -45,7 +45,7 @@ nsis:
 #
 # Self-hosting instead of GitHub: swap the block below for
 #   provider: generic
-#   url: https://your.host/whisperlive/
+#   url: https://your.host/rtranslate/
 # and copy the same three files there.
 #
 # Unsigned builds update fine, but Windows SmartScreen will warn on first run.
@@ -54,7 +54,7 @@ nsis:
 publish:
   provider: github
   owner: b2renger
-  repo: WhisperLive
+  repo: Rtranslate
   releaseType: draft
 
 # ---------------------------------------------------------------------------

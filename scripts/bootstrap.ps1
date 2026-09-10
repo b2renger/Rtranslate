@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Create the Python environment WhisperLive's sidecar runs in.
+    Create the Python environment Rtranslate's sidecar runs in.
 
 .DESCRIPTION
     Same recipe as spike/setup.ps1, but it builds the environment at the repo
@@ -81,7 +81,7 @@ if ok:
     print(f"  device         {p.name}")
     print(f"  vram           {p.total_memory/1024**3:.1f} GiB")
 else:
-    print("  !! torch cannot see the GPU. WhisperLive will refuse to start.")
+    print("  !! torch cannot see the GPU. Rtranslate will refuse to start.")
     sys.exit(1)
 import whisperlivekit
 print("  whisperlivekit ok")

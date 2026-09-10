@@ -1,5 +1,5 @@
 {
-  "name": "whisperlive",
+  "name": "rtranslate",
   "version": "0.1.0",
   "private": true,
   "description": "Local, GPU-accelerated live transcription and translation. French <-> English, nothing leaves the machine.",

@@ -1,4 +1,4 @@
-# WhisperLive
+# Rtranslate
 
 A local, GPU-accelerated live transcription and translation desktop app for
 Windows. French ↔ English. Nothing leaves the machine.
@@ -11,7 +11,7 @@ captions as people talk.
 
 ## First run
 
-Install `WhisperLive-<version>-x64.exe`, launch it, and press **Set up**. The app
+Install `Rtranslate-<version>-x64.exe`, launch it, and press **Set up**. The app
 builds its own Python environment — private Python 3.12, CUDA PyTorch,
 WhisperLiveKit, NLLB and the cuDNN libraries — into its own folder. About 4 GB,
 once. Your system Python, if you have one, is never touched.
@@ -95,7 +95,7 @@ browser window, push captions into it and read back what a phone would show.
 ### Building
 
 ```powershell
-npm run dist      # release\WhisperLive-<version>-x64.exe  (~100 MB)
+npm run dist      # release\Rtranslate-<version>-x64.exe  (~100 MB)
 npm run release   # same, plus a draft GitHub Release for auto-update
 ```
 
@@ -222,7 +222,7 @@ is working without a network, so a failed update check stays silent.
 To turn it on you need a repo for releases to live in:
 
 ```powershell
-gh repo create b2renger/WhisperLive --private --source=. --remote=origin
+gh repo create b2renger/Rtranslate --private --source=. --remote=origin
 git push -u origin main
 
 $env:GH_TOKEN = "ghp_..."      # a token with repo scope

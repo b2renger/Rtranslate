@@ -82,7 +82,7 @@ test('phone server', async (t) => {
     const page = await get(`/?k=${info.key}`);
     assert.equal(page.status, 200);
     assert.match(page.headers['content-type'], /text\/html/);
-    assert.match(page.body, /WhisperLive captions/);
+    assert.match(page.body, /Rtranslate captions/);
 
     // Every path is key-gated, so the page's own asset URLs must carry the key
     // or the browser fetches them bare, gets a 403, and the page never runs.

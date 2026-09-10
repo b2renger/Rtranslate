@@ -1,4 +1,4 @@
-# WhisperLive — implementation plan
+# Rtranslate — implementation plan
 
 **Scope:** French ↔ English live transcription and translation, fully local, on
 Windows 11 with an NVIDIA GPU, packaged as an Electron app.
@@ -249,7 +249,7 @@ reads as a reference implementation:
   hardware auto-detection, and a Live Mode doing sentence-by-sentence realtime.
   Read its dashboard↔server lifecycle code before writing ours. It chose Docker
   with WSL2 for the Windows CUDA path — a decision to consciously adopt or reject.
-- **[WhisperLive](https://github.com/collabora/WhisperLive)** (Collabora) — the
+- **[Rtranslate](https://github.com/collabora/Rtranslate)** (Collabora) — the
   other mature realtime server, TensorRT-capable. The alternative if
   WhisperLiveKit's Windows story disappoints in Phase 0.
 - **[EasyWhisperUI](https://github.com/mehtabmahir/easy-whisper-ui)**,

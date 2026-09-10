@@ -28,7 +28,7 @@ const PY_REL = IS_WIN ? path.join('Scripts', 'python.exe') : path.join('bin', 'p
  */
 function candidates(repoRoot) {
   const list = [];
-  if (process.env.WHISPERLIVE_PYTHON) list.push(process.env.WHISPERLIVE_PYTHON);
+  if (process.env.RTRANSLATE_PYTHON) list.push(process.env.RTRANSLATE_PYTHON);
 
   // An environment shipped alongside a packaged build, if one is ever bundled.
   if (app && app.isPackaged) {

@@ -1,4 +1,4 @@
-/* WhisperLive phone caption viewer.
+/* Rtranslate phone caption viewer.
  *
  * Deliberately plain: no modules, no build step, no dependencies. It has to
  * work first time on whatever browser happens to be on the phone, over a LAN

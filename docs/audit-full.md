@@ -210,7 +210,7 @@ Windows. Every piece has precedent:
   closest analogue: Electron dashboard + Python backend, Windows installers, CUDA
   via Docker/WSL2, a native `whisper-server.exe` for the non-CUDA path, hardware
   auto-detection, and a Live Mode for sentence-by-sentence realtime.
-- **[Collabora/WhisperLive](https://github.com/collabora/WhisperLive)** — the other
+- **[Collabora/Rtranslate](https://github.com/collabora/Rtranslate)** — the other
   mature realtime server, TensorRT-capable.
 - **[EasyWhisperUI](https://github.com/mehtabmahir/easy-whisper-ui)**,
   **WhisperScript** — Electron GUIs over whisper.cpp with CUDA/Vulkan/CPU builds.
@@ -290,7 +290,7 @@ of Electron.**
 - [WhisperLiveKit #286](https://github.com/QuentinFuxa/WhisperLiveKit/issues/286) — cuDNN on Windows
 - [faster-whisper #1080](https://github.com/SYSTRAN/faster-whisper/issues/1080)
 - [TranscriptionSuite](https://github.com/homelab-00/TranscriptionSuite)
-- [Collabora/WhisperLive](https://github.com/collabora/WhisperLive)
+- [Collabora/Rtranslate](https://github.com/collabora/Rtranslate)
 - [EasyWhisperUI](https://github.com/mehtabmahir/easy-whisper-ui)
 - [electron-speech-to-speech](https://github.com/Kutalia/electron-speech-to-speech)
 - [FunAudioLLM](https://arxiv.org/pdf/2407.04051) — SenseVoice architecture and CJK benchmarks
