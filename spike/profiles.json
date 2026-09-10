@@ -1,0 +1,93 @@
+{
+  "_comment": [
+    "Phase 0 sweep definition. Each profile launches the server once with the given",
+    "flags, then runs every entry in `runs` against it. `wav` is resolved relative",
+    "to spike/samples/.",
+    "",
+    "The point of the sweep is to answer, with numbers rather than estimates:",
+    "  - what latency does this GPU actually deliver, per model size and threshold",
+    "  - how much VRAM SimulStreaming large-v3 really takes",
+    "  - whether native FR->EN translation is meaningfully faster than NLLB",
+    "  - whether one server can serve both the native and NLLB paths (see mixed-paths)"
+  ],
+
+  "profiles": [
+    {
+      "name": "medium-simul",
+      "why": "Baseline the 3070 can definitely run. If this sounds good enough, the VRAM question mostly goes away.",
+      "server_args": ["--model", "medium", "--backend", "simulstreaming", "--frame-threshold", "25"],
+      "runs": [
+        { "label": "fr-fr", "wav": "fr_60s.wav", "language": "fr" },
+        { "label": "en-en", "wav": "en_60s.wav", "language": "en" }
+      ]
+    },
+    {
+      "name": "medium-simul-ft15",
+      "why": "Same model, tighter AlignAtt lookahead. Measures what frame-threshold actually buys.",
+      "server_args": ["--model", "medium", "--backend", "simulstreaming", "--frame-threshold", "15"],
+      "runs": [
+        { "label": "fr-fr", "wav": "fr_60s.wav", "language": "fr" }
+      ]
+    },
+    {
+      "name": "large-simul",
+      "why": "The flagship configuration. Watch nvidia-smi while this runs - the VRAM figure is the point.",
+      "server_args": ["--model", "large-v3", "--backend", "simulstreaming", "--frame-threshold", "25"],
+      "runs": [
+        { "label": "fr-fr", "wav": "fr_60s.wav", "language": "fr" },
+        { "label": "en-en", "wav": "en_60s.wav", "language": "en" }
+      ]
+    },
+    {
+      "name": "large-simul-ft15",
+      "why": "Flagship model at the tighter threshold; the config most likely to ship.",
+      "server_args": ["--model", "large-v3", "--backend", "simulstreaming", "--frame-threshold", "15"],
+      "runs": [
+        { "label": "fr-fr", "wav": "fr_60s.wav", "language": "fr" }
+      ]
+    },
+    {
+      "name": "large-fasterwhisper",
+      "why": "The licence-clean fallback: CTranslate2 + LocalAgreement. Also ~3 GB instead of ~10.",
+      "server_args": ["--model", "large-v3", "--backend", "faster-whisper", "--backend-policy", "localagreement"],
+      "runs": [
+        { "label": "fr-fr", "wav": "fr_60s.wav", "language": "fr" }
+      ]
+    },
+    {
+      "name": "native-en",
+      "why": "FR->EN through Whisper's own translate task. Expect transcript-like latency and NO translation field.",
+      "server_args": ["--model", "large-v3", "--backend", "simulstreaming", "--frame-threshold", "25", "--direct-english-translation"],
+      "runs": [
+        { "label": "fr-en-native", "wav": "fr_60s.wav", "language": "fr" }
+      ]
+    },
+    {
+      "name": "nllb",
+      "why": "EN->FR through NLLB. The sentence gate should show up as a much higher translation median than transcript median.",
+      "server_args": ["--model", "large-v3", "--backend", "simulstreaming", "--frame-threshold", "25", "--translation-backend", "nllb", "--nllb-backend", "ctranslate2", "--nllb-size", "600M"],
+      "runs": [
+        { "label": "en-fr-nllb", "wav": "en_60s.wav", "language": "en", "target_language": "fra_Latn" },
+        { "label": "fr-en-nllb", "wav": "fr_60s.wav", "language": "fr", "target_language": "eng_Latn" }
+      ]
+    },
+    {
+      "name": "mixed-paths",
+      "why": "THE open question: can one server serve the native FR->EN path AND the NLLB EN->FR path, or does flipping direction need a relaunch? If both runs below produce sane output, the UI never has to reload a model.",
+      "server_args": ["--model", "large-v3", "--backend", "simulstreaming", "--frame-threshold", "25", "--direct-english-translation", "--translation-backend", "nllb", "--nllb-backend", "ctranslate2", "--nllb-size", "600M"],
+      "runs": [
+        { "label": "fr-en-native", "wav": "fr_60s.wav", "language": "fr" },
+        { "label": "en-fr-nllb", "wav": "en_60s.wav", "language": "en", "target_language": "fra_Latn" }
+      ]
+    },
+    {
+      "name": "auto-lid",
+      "why": "Bilingual source detection. Watch whether detected_language flips mid-stream on short utterances.",
+      "server_args": ["--model", "large-v3", "--backend", "simulstreaming", "--frame-threshold", "25"],
+      "runs": [
+        { "label": "auto-fr", "wav": "fr_60s.wav", "language": "auto" },
+        { "label": "auto-en", "wav": "en_60s.wav", "language": "auto" }
+      ]
+    }
+  ]
+}

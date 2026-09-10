@@ -8,6 +8,9 @@ language and a display language, and read captions as people talk.
 
 ---
 
+> **You are on `engine/whisperlivekit`** — the incumbent engine. `main` is the
+> shell without an engine; `engine/qvac` is the candidate.
+
 ## Which engine
 
 The shell is finished and the engine is not decided. Two candidates are being
