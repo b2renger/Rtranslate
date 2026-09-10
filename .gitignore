@@ -30,3 +30,8 @@ build/
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# Profiler output and generated samples: reproducible from make-sample.ps1 and
+# profile.mjs, and the WAVs are megabytes of synthetic speech.
+spike/samples/
+spike/runs-*.json
