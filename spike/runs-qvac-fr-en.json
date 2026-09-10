@@ -1,0 +1,428 @@
+{
+  "endpoint": "ws://127.0.0.1:55299/asr?language=fr&target_language=eng_Latn",
+  "audioSeconds": 62.925,
+  "realtime": true,
+  "config": {
+    "type": "config",
+    "useAudioWorklet": true,
+    "mode": "full"
+  },
+  "events": [
+    {
+      "at": 5273.0578,
+      "what": "first commit"
+    }
+  ],
+  "commits": [
+    {
+      "index": 0,
+      "kind": "text",
+      "audioEnd": 4.32,
+      "wallAt": 5.273057799999999,
+      "latency": 0.953057799999999
+    },
+    {
+      "index": 1,
+      "kind": "text",
+      "audioEnd": 10.599999,
+      "wallAt": 12.4307765,
+      "latency": 1.8307775
+    },
+    {
+      "index": 2,
+      "kind": "text",
+      "audioEnd": 18.459999,
+      "wallAt": 21.0874801,
+      "latency": 2.6274811000000007
+    },
+    {
+      "index": 3,
+      "kind": "text",
+      "audioEnd": 22.619999,
+      "wallAt": 26.025351999999998,
+      "latency": 3.405352999999998
+    },
+    {
+      "index": 4,
+      "kind": "text",
+      "audioEnd": 23.589999,
+      "wallAt": 32.5162513,
+      "latency": 8.926252300000002
+    },
+    {
+      "index": 5,
+      "kind": "text",
+      "audioEnd": 22.159999,
+      "wallAt": 36.8426872,
+      "latency": 14.682688200000001
+    },
+    {
+      "index": 6,
+      "kind": "text",
+      "audioEnd": 27.909999,
+      "wallAt": 42.087262,
+      "latency": 14.177263000000004
+    },
+    {
+      "index": 7,
+      "kind": "text",
+      "audioEnd": 34.249999,
+      "wallAt": 49.185684,
+      "latency": 14.935685
+    },
+    {
+      "index": 8,
+      "kind": "text",
+      "audioEnd": 42.109998,
+      "wallAt": 58.130023800000004,
+      "latency": 16.020025800000006
+    },
+    {
+      "index": 9,
+      "kind": "text",
+      "audioEnd": 38.569998,
+      "wallAt": 63.1015979,
+      "latency": 24.531599900000003
+    }
+  ],
+  "gpuSamples": [
+    {
+      "at": 1.0681513,
+      "vramMiB": 92734,
+      "utilPct": 0
+    },
+    {
+      "at": 2.0511160999999998,
+      "vramMiB": 92734,
+      "utilPct": 0
+    },
+    {
+      "at": 3.0624303,
+      "vramMiB": 92734,
+      "utilPct": 0
+    },
+    {
+      "at": 4.0706203,
+      "vramMiB": 92734,
+      "utilPct": 0
+    },
+    {
+      "at": 5.0781592,
+      "vramMiB": 92734,
+      "utilPct": 0
+    },
+    {
+      "at": 6.0875829999999995,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 7.098607100000001,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 8.1084047,
+      "vramMiB": 92776,
+      "utilPct": 1
+    },
+    {
+      "at": 9.1140428,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 10.127379799999998,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 11.138437000000001,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 12.145995800000001,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 13.158150000000001,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 14.170174200000002,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 15.184053899999999,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 16.1984486,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 17.2102789,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 18.2179184,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 19.230047199999998,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 20.2416423,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 21.2518592,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 22.2624033,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 23.271252099999998,
+      "vramMiB": 92776,
+      "utilPct": 1
+    },
+    {
+      "at": 24.280041999999998,
+      "vramMiB": 92776,
+      "utilPct": 1
+    },
+    {
+      "at": 25.2906752,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 26.3020226,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 27.3149531,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 28.3265573,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 29.3401826,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 30.3522558,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 31.367619499999996,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 32.381933000000004,
+      "vramMiB": 92776,
+      "utilPct": 1
+    },
+    {
+      "at": 33.380039000000004,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 34.3920866,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 35.4053646,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 36.4206992,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 37.4336873,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 38.444636700000004,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 39.457535,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 40.4702623,
+      "vramMiB": 92776,
+      "utilPct": 1
+    },
+    {
+      "at": 41.4784715,
+      "vramMiB": 92776,
+      "utilPct": 1
+    },
+    {
+      "at": 42.4899299,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 43.5028801,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 44.51632180000001,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 45.5282707,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 46.543134300000006,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 47.554429000000006,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 48.5662615,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 49.57711760000001,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 50.589767200000004,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 51.60106460000001,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 52.6118614,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 53.621870900000005,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 54.6300754,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 55.6438671,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 56.656816000000006,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 57.671167600000004,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 58.68310700000001,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 59.6948239,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 60.707956700000004,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 61.7216918,
+      "vramMiB": 92776,
+      "utilPct": 0
+    },
+    {
+      "at": 62.7343554,
+      "vramMiB": 92776,
+      "utilPct": 0
+    }
+  ],
+  "firstPartialAt": null,
+  "firstCommitAt": 5273.0578,
+  "readyToStopAt": 63102.7241,
+  "warnings": [],
+  "audioSentAt": 62.933035800000006,
+  "outcome": "ready_to_stop",
+  "summary": {
+    "audioSeconds": 62.92,
+    "firstPartialSec": null,
+    "firstCommitSec": 5.273,
+    "commitsDuringAudio": 9,
+    "commitsAfterAudio": 1,
+    "textLatency": {
+      "median": 8.926,
+      "p90": 16.02,
+      "max": 16.02
+    },
+    "translationLatency": {
+      "median": null,
+      "p90": null
+    },
+    "translationLagMedian": null,
+    "flushSec": 0.17,
+    "peakVramMiB": 92776,
+    "meanGpuUtilPct": 0
+  },
+  "engine": "qvac",
+  "label": "QVAC · fr_60s.wav · fr->en"
+}

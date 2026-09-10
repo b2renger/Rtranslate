@@ -30,17 +30,33 @@ loads into Electron — so a socket is what the boundary honestly is. The render
 is byte-identical across branches, which is what makes a measured difference a
 difference in the engine rather than in the shell around it.
 
-**The comparison is not yet decided.** What is known so far:
+**The comparison is half done.** QVAC has been measured (10 Sep 2026,
+[spike/RESULTS-qvac.md](spike/RESULTS-qvac.md) on `engine/qvac`); WhisperLiveKit
+has not, because it needs its 4 GB Python environment first. What is known:
 
-- QVAC needs no Python, no CUDA toolkit, no cuDNN `PATH` fix, and no 4 GB
-  resolver dance — the whole of `envSetup.js` stops being necessary.
-- But on Windows it runs **Vulkan, not CUDA**, even on an NVIDIA card. That is
-  not a documentation claim, it is QVAC's own source comment: *"the NVIDIA
-  calibration host advertises both CUDA and Vulkan, and every load on it reports
-  `ggml_vulkan`, never `ggml_cuda`."* Its packages ship no `win32-x64-cuda`
-  build.
-- So the trade is a much cheaper install against an unknown amount of GPU
-  throughput, and it has to be measured. See [spike/README.md](spike/README.md).
+- **QVAC's throughput is excellent.** 60 s of audio transcribed in 0.9–1.8 s on
+  the GPU — 36–60× real time.
+- **Its streaming latency is not.** 5–14 s median commit latency on the same
+  audio, climbing through a run as a backlog builds. An engine that fast is not
+  short of compute: its duplex session emits only when a VAD closes a speech
+  segment, and continuous speech makes long segments. AlignAtt emits *inside* a
+  sentence; this does not.
+- **It has no provisional text.** A line does not exist until it is final, so
+  the dimmed "still in flight" pane is always empty. For a live-caption app that
+  may matter more than the median.
+- **FR→EN is free** — Whisper's own translate task, no second model, no sentence
+  gate, and no slower than plain transcription. **EN→FR does not exist**: the
+  registry ships no French↔English translation model at all.
+- On Windows it runs **Vulkan, not CUDA**, even on an NVIDIA card — QVAC's own
+  source says so and this box confirms it. That turned out **not** to be the
+  problem: Vulkan beat CPU by 1.7× and was never the bottleneck.
+- Setup is cheaper but not free: **~805 MB** of prebuilt binaries for this
+  platform (a 4.8 GB working tree covering 11 platforms) against ~4 GB of
+  Python, and `envSetup.js` + `pythonEnv.js` stop being necessary. Though
+  QVAC's own model downloader currently crashes on this network.
+
+The next measurement that matters is **Parakeet CTC/Unified**, which is
+streaming-native and might fix the one thing that is actually wrong.
 
 ---
 
