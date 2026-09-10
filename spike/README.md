@@ -9,6 +9,72 @@ on the SimulStreaming path, and half the sweep will fail to load.
 
 ---
 
+## Comparing two engines — `profile.mjs`
+
+The original harness here (`measure_latency.py` + `sweep.ps1`) measures
+WhisperLiveKit, and needs the sidecar's own Python venv to run — so it can never
+measure the candidate engine. `profile.mjs` replaces it for that job: it speaks
+the client half of [the engine contract](../docs/engine-contract.md), so **one
+code path, one clock and one set of definitions** measure both candidates.
+
+It needs only Node ≥ 22 (for a global `WebSocket`) and a WAV.
+
+```powershell
+# an engine this branch ships, started for you
+node spike\profile.mjs --engine whisperlivekit --wav spike\samples\fr_60s.wav
+node spike\profile.mjs --engine qvac          --wav spike\samples\fr_60s.wav
+
+# transcription only, no translation
+node spike\profile.mjs --engine qvac --wav samples\fr_60s.wav --source fr --target fr
+
+# something already running, and keep every commit event for diffing
+node spike\profile.mjs --endpoint ws://127.0.0.1:8799/asr --wav samples\fr_60s.wav --json runs\qvac-fr.json
+```
+
+`--set k=v` overrides an engine setting (`--set model=medium`), `--fast` sends
+the file as quickly as possible to measure throughput rather than latency, and
+`--no-gpu` skips `nvidia-smi` sampling.
+
+### What it reports, and what the words mean
+
+| Figure | Definition |
+|---|---|
+| time to first partial | wall seconds until *any* text appears, committed or not |
+| time to first commit | wall seconds until text stops moving |
+| commit latency | for each line, wall time of its commit minus the **audio timestamp it covers** — not arrival order |
+| translation latency | the same, for the `translation` field |
+| translation behind text | per line, when the translation landed minus when the text did — the sentence-gate cost |
+| flush | seconds between end-of-audio and `ready_to_stop` |
+
+Audio is fed **paced to the wall clock** by default, because a streaming
+engine's latency is only meaningful against real-time input; firehosing the file
+measures throughput, which is a different question and is what `--fast` is for.
+
+Commits arriving after end-of-audio are real latency but distorted by flush
+semantics, so they are counted and reported **apart from** the live statistics
+and excluded from every median. That exclusion is not cosmetic: during a flush
+each line's text and translation arrive in the same message, so a long tail of
+flushed pairs would report a translation lag of zero for an engine that is
+seconds behind.
+
+### Trusting it
+
+Validate the harness against known answers before trusting it on a real engine.
+The `mock` engine commits at lags you choose:
+
+```powershell
+node spike\profile.mjs --engine mock --wav samples\fr_60s.wav --no-gpu
+#   commit latency (median)      ~1.2s   <- the injected transcript lag
+#   translation latency (median) ~2.5s   <- the injected translation lag
+#   translation behind text      ~1.3s   <- the difference
+```
+
+Measured granularity is the mock's 200 ms tick, so expect roughly +0.1 s. If
+those three numbers do not come back, fix the harness before measuring anything
+else.
+
+---
+
 ## Run it
 
 ```powershell

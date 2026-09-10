@@ -3,9 +3,44 @@
 A local, GPU-accelerated live transcription and translation desktop app for
 Windows. French ↔ English. Nothing leaves the machine.
 
-An Electron shell around a [WhisperLiveKit](https://github.com/QuentinFuxa/WhisperLiveKit)
-sidecar: pick an audio source, a spoken language and a display language, and read
-captions as people talk.
+An Electron shell around a transcription engine: pick an audio source, a spoken
+language and a display language, and read captions as people talk.
+
+---
+
+## Which engine
+
+The shell is finished and the engine is not decided. Two candidates are being
+measured against each other, and they live on branches:
+
+| Branch | Engine | Stack | Setup cost |
+|---|---|---|---|
+| `engine/whisperlivekit` | [WhisperLiveKit](https://github.com/QuentinFuxa/WhisperLiveKit) | Python 3.12, CUDA PyTorch, SimulStreaming/AlignAtt + NLLB-200 | ~4 GB, ~20 min |
+| `engine/qvac` | [Tether QVAC](https://qvac.tether.io/) | Bare runtime, whisper.cpp/Parakeet + nmtcpp, **Vulkan** | ~800 MB, no Python |
+
+`main` carries everything that is not an engine — audio capture, captions, the
+phone display, settings, packaging, auto-update — plus the contract between the
+two, the registry that finds engines, a `mock` engine, and the harness that
+measures them. It does not know how either real engine works.
+
+The seam is a localhost WebSocket, described in
+[docs/engine-contract.md](docs/engine-contract.md). Both engines are
+out-of-process anyway — one is Python, the other is a Bare worker, and neither
+loads into Electron — so a socket is what the boundary honestly is. The renderer
+is byte-identical across branches, which is what makes a measured difference a
+difference in the engine rather than in the shell around it.
+
+**The comparison is not yet decided.** What is known so far:
+
+- QVAC needs no Python, no CUDA toolkit, no cuDNN `PATH` fix, and no 4 GB
+  resolver dance — the whole of `envSetup.js` stops being necessary.
+- But on Windows it runs **Vulkan, not CUDA**, even on an NVIDIA card. That is
+  not a documentation claim, it is QVAC's own source comment: *"the NVIDIA
+  calibration host advertises both CUDA and Vulkan, and every load on it reports
+  `ggml_vulkan`, never `ggml_cuda`."* Its packages ship no `win32-x64-cuda`
+  build.
+- So the trade is a much cheaper install against an unknown amount of GPU
+  throughput, and it has to be measured. See [spike/README.md](spike/README.md).
 
 ---
 
@@ -75,17 +110,28 @@ Virtual adapters (WSL, Hyper-V, VPNs) are ranked last and will not work.
 
 ### Without a GPU
 
-The whole UI can be driven against a protocol-accurate stand-in:
+The `mock` engine is a real engine — it registers like the others and serves the
+same contract — that emits fixed captions with deliberate, known lags and never
+loads a model. So the whole UI runs on any machine, with no GPU, no Python and
+no models:
 
 ```powershell
-spike\.venv\Scripts\python.exe spike\mock_server.py 8799
-npx electron . --smoke --smoke-phone --smoke-ws=ws://127.0.0.1:8799/asr
+npm start                       # then pick "Mock engine" in settings
+node spike\profile.mjs --engine mock --wav spike\samples\fr_60s.wav
 ```
+
+Its known lags are also how the measurement harness is kept honest: inject a
+1.2 s transcript lag and a 2.5 s translation lag, and check the harness reports
+them back before believing anything it says about a real engine.
+
+The older `spike\mock_server.py` does the same job but needs Python and a
+`websockets` install, so it cannot be used to profile the candidate engine.
 
 ### Tests
 
 ```powershell
-npm test        # 51 unit tests: session planning, diagnosis, ports, phone server, CUDA resolution
+npm test        # 71 unit tests: the engine seam and WebSocket framing, session
+                # planning, profiler statistics, diagnosis, ports, phone server
 npm run smoke   # renderer: preload bridge, AudioContext, AudioWorklet, captions
 ```
 
@@ -254,16 +300,22 @@ certificate is the only thing missing; updates themselves work regardless.
 
 ## Layout
 
+Everything below is on `main` unless marked with the branch that adds it.
+
 ```
 src/
   main/
     main.js         windows, IPC, shutdown, the --smoke harness
-    sidecar.js      spawn / health / crash / guaranteed kill, failure diagnosis
-    pythonEnv.js    env discovery, the cuDNN PATH fix, GPU probe
-    profiles.js     session planning - the module that absorbs question 1
+    engines/
+      index.js      the registry: engines are FOUND by reading this directory,
+                    never listed in a shared file - which is why the two engine
+                    branches never conflict
+      mock.js       fixed captions, known lags, no inference
+      whisperlivekit.js   [engine/whisperlivekit] Python sidecar + CUDA PyTorch
+      qvac.js             [engine/qvac]           Bare worker + Vulkan
+    miniws.js       the WebSocket server engines serve the contract with
     phoneServer.js  LAN caption server: SSE, access key, adapter ranking
     updater.js      auto-update, refusing to interrupt a live session
-    envSetup.js     first-run Python environment: resolve, verify CUDA, install
     settings.js     persisted config
   preload/preload.js
   renderer/
@@ -274,10 +326,14 @@ src/
   phone/            the page phones load: no build step, no dependencies
   shared/languages.cjs   the one canonical language-code table
 docs/
-  plan.md           the implementation plan
-  audit-full.md     the original audit, including the Chinese analysis
-  websocket-api.md  verified wire protocol
-spike/              Phase 0 measurement harness + the mock server
+  engine-contract.md  the boundary: what an engine must do, and why it is a socket
+  websocket-api.md    the wire protocol, as verified against WhisperLiveKit
+  plan.md             the implementation plan
+  audit-full.md       the original audit, including the Chinese analysis
+spike/
+  profile.mjs       the engine profiler - plain node, targets the contract, so
+                    one code path measures both candidates
+  README.md         how to run a comparison
 test/               unit tests
 ```
 
