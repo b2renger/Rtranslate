@@ -8,6 +8,9 @@ language and a display language, and read captions as people talk.
 
 ---
 
+> **You are on `engine/qvac`** — the candidate engine. `main` is the shell
+> without an engine; `engine/whisperlivekit` is the incumbent.
+
 ## Which engine
 
 The shell is finished and the engine is not decided. Two candidates are being
@@ -148,7 +151,9 @@ The older `spike\mock_server.py` does the same job but needs Python and a
 ```powershell
 npm test        # the engine seam and WebSocket framing, profiler statistics,
                 # ports, phone server - plus whatever tests the engine on this
-                # branch brings. 32 on main, 71 on engine/whisperlivekit.
+                # branch brings. 32 on main, 71 on engine/whisperlivekit,
+                # 44 here - this engine's planning is pure and testable, but
+                # everything past plan() needs the SDK, the weights and a GPU.
 npm run smoke   # renderer: preload bridge, AudioContext, AudioWorklet, captions
 ```
 
