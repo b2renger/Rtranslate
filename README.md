@@ -33,17 +33,33 @@ loads into Electron — so a socket is what the boundary honestly is. The render
 is byte-identical across branches, which is what makes a measured difference a
 difference in the engine rather than in the shell around it.
 
-**The comparison is not yet decided.** What is known so far:
+**The comparison is half done.** QVAC has been measured (10 Sep 2026,
+[spike/RESULTS-qvac.md](spike/RESULTS-qvac.md) on `engine/qvac`); WhisperLiveKit
+has not, because it needs its 4 GB Python environment first. What is known:
 
-- QVAC needs no Python, no CUDA toolkit, no cuDNN `PATH` fix, and no 4 GB
-  resolver dance — the whole of `envSetup.js` stops being necessary.
-- But on Windows it runs **Vulkan, not CUDA**, even on an NVIDIA card. That is
-  not a documentation claim, it is QVAC's own source comment: *"the NVIDIA
-  calibration host advertises both CUDA and Vulkan, and every load on it reports
-  `ggml_vulkan`, never `ggml_cuda`."* Its packages ship no `win32-x64-cuda`
-  build.
-- So the trade is a much cheaper install against an unknown amount of GPU
-  throughput, and it has to be measured. See [spike/README.md](spike/README.md).
+- **QVAC's throughput is excellent.** 60 s of audio transcribed in 0.9–1.8 s on
+  the GPU — 36–60× real time.
+- **Its streaming latency is not.** 5–14 s median commit latency on the same
+  audio, climbing through a run as a backlog builds. An engine that fast is not
+  short of compute: its duplex session emits only when a VAD closes a speech
+  segment, and continuous speech makes long segments. AlignAtt emits *inside* a
+  sentence; this does not.
+- **It has no provisional text.** A line does not exist until it is final, so
+  the dimmed "still in flight" pane is always empty. For a live-caption app that
+  may matter more than the median.
+- **FR→EN is free** — Whisper's own translate task, no second model, no sentence
+  gate, and no slower than plain transcription. **EN→FR does not exist**: the
+  registry ships no French↔English translation model at all.
+- On Windows it runs **Vulkan, not CUDA**, even on an NVIDIA card — QVAC's own
+  source says so and this box confirms it. That turned out **not** to be the
+  problem: Vulkan beat CPU by 1.7× and was never the bottleneck.
+- Setup is cheaper but not free: **~805 MB** of prebuilt binaries for this
+  platform (a 4.8 GB working tree covering 11 platforms) against ~4 GB of
+  Python, and `envSetup.js` + `pythonEnv.js` stop being necessary. Though
+  QVAC's own model downloader currently crashes on this network.
+
+The next measurement that matters is **Parakeet CTC/Unified**, which is
+streaming-native and might fix the one thing that is actually wrong.
 
 ---
 
@@ -141,6 +157,13 @@ npm run smoke   # renderer: preload bridge, AudioContext, AudioWorklet, captions
 Add `--smoke-phone` to also start the LAN server, load the phone page in a real
 browser window, push captions into it and read back what a phone would show.
 
+Those cover what a machine can check. **[docs/TESTING.md](docs/TESTING.md) is
+the human protocol** — the shell on the mock engine, per-branch engine
+acceptance, and the side-by-side session that decides which engine ships. Read
+its first rule before running anything live: four minutes of continuous speech
+minimum, because QVAC's latency climbs *through* a run and a short test hides
+it.
+
 ### Building
 
 ```powershell
@@ -171,24 +194,28 @@ implemented; Phase 0's measurements are not.
 Everything that can be checked without a GPU has been — and the same suite
 passes against the **packaged** build, not just from source:
 
-- 51 unit tests covering session planning, the four language pairs, profile-key
-  stability, failure diagnosis, port handling, the phone server's access control,
-  SSE delivery, backlog replay and transcript cap, and the CUDA resolution
-  verifier against real resolver output
+- 32 unit tests on `main`, 71 on `engine/whisperlivekit`: the engine registry and
+  WebSocket framing, the profiler's statistics, session planning, the four
+  language pairs, profile-key stability, failure diagnosis, port handling, the
+  phone server's access control, SSE delivery, backlog replay and transcript
+  cap, and the CUDA resolution verifier against real resolver output
 - A renderer smoke test proving the preload bridge, ES module wiring, a 16 kHz
   `AudioContext` (native — no resampling needed), `AudioWorklet.addModule` under
   the page CSP, and the worklet instantiating
-- An end-to-end run against `spike/mock_server.py`: real binary PCM frames in,
-  rendered captions out, over a real WebSocket
+- An end-to-end run against the in-process `mock` engine: real binary PCM frames
+  in, rendered captions out, over a real WebSocket — now part of `npm run smoke`
+  rather than needing a Python server started by hand
 - An end-to-end run of the phone display: LAN server up, page loaded in a real
   browser window, SSE connected, captions rendered, the source/translation
   toggle working, and a wrong key refused
 
 ### What has not
 
-Everything that needs the card: model loading, real latency, real VRAM, whether
-`--direct-english-translation` behaves as assumed, whether Windows loopback audio
-works at all.
+**The whole of [docs/TESTING.md](docs/TESTING.md)** — nobody has yet sat in a
+room and read a passage at either engine. In particular: WhisperLiveKit has no
+measurements at all (QVAC has some, on a contended box), nothing has been run on
+the quiet RTX 3070, and whether Windows loopback audio works here is still
+unknown.
 
 Setup steps 1-3 (uv, Python 3.12, venv) have been run for real and verified, and
 the resolution logic is tested against real resolver output for all three CUDA
@@ -329,6 +356,7 @@ src/
   phone/            the page phones load: no build step, no dependencies
   shared/languages.cjs   the one canonical language-code table
 docs/
+  TESTING.md          the human protocol: what a script cannot check, both branches
   engine-contract.md  the boundary: what an engine must do, and why it is a socket
   websocket-api.md    the wire protocol, as verified against WhisperLiveKit
   plan.md             the implementation plan
