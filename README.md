@@ -154,6 +154,13 @@ npm run smoke   # renderer: preload bridge, AudioContext, AudioWorklet, captions
 Add `--smoke-phone` to also start the LAN server, load the phone page in a real
 browser window, push captions into it and read back what a phone would show.
 
+Those cover what a machine can check. **[docs/TESTING.md](docs/TESTING.md) is
+the human protocol** — the shell on the mock engine, per-branch engine
+acceptance, and the side-by-side session that decides which engine ships. Read
+its first rule before running anything live: four minutes of continuous speech
+minimum, because QVAC's latency climbs *through* a run and a short test hides
+it.
+
 ### Building
 
 ```powershell
@@ -184,24 +191,28 @@ implemented; Phase 0's measurements are not.
 Everything that can be checked without a GPU has been — and the same suite
 passes against the **packaged** build, not just from source:
 
-- 51 unit tests covering session planning, the four language pairs, profile-key
-  stability, failure diagnosis, port handling, the phone server's access control,
-  SSE delivery, backlog replay and transcript cap, and the CUDA resolution
-  verifier against real resolver output
+- 32 unit tests on `main`, 71 on `engine/whisperlivekit`: the engine registry and
+  WebSocket framing, the profiler's statistics, session planning, the four
+  language pairs, profile-key stability, failure diagnosis, port handling, the
+  phone server's access control, SSE delivery, backlog replay and transcript
+  cap, and the CUDA resolution verifier against real resolver output
 - A renderer smoke test proving the preload bridge, ES module wiring, a 16 kHz
   `AudioContext` (native — no resampling needed), `AudioWorklet.addModule` under
   the page CSP, and the worklet instantiating
-- An end-to-end run against `spike/mock_server.py`: real binary PCM frames in,
-  rendered captions out, over a real WebSocket
+- An end-to-end run against the in-process `mock` engine: real binary PCM frames
+  in, rendered captions out, over a real WebSocket — now part of `npm run smoke`
+  rather than needing a Python server started by hand
 - An end-to-end run of the phone display: LAN server up, page loaded in a real
   browser window, SSE connected, captions rendered, the source/translation
   toggle working, and a wrong key refused
 
 ### What has not
 
-Everything that needs the card: model loading, real latency, real VRAM, whether
-`--direct-english-translation` behaves as assumed, whether Windows loopback audio
-works at all.
+**The whole of [docs/TESTING.md](docs/TESTING.md)** — nobody has yet sat in a
+room and read a passage at either engine. In particular: WhisperLiveKit has no
+measurements at all (QVAC has some, on a contended box), nothing has been run on
+the quiet RTX 3070, and whether Windows loopback audio works here is still
+unknown.
 
 Setup steps 1-3 (uv, Python 3.12, venv) have been run for real and verified, and
 the resolution logic is tested against real resolver output for all three CUDA
@@ -342,6 +353,7 @@ src/
   phone/            the page phones load: no build step, no dependencies
   shared/languages.cjs   the one canonical language-code table
 docs/
+  TESTING.md          the human protocol: what a script cannot check, both branches
   engine-contract.md  the boundary: what an engine must do, and why it is a socket
   websocket-api.md    the wire protocol, as verified against WhisperLiveKit
   plan.md             the implementation plan
