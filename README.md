@@ -149,8 +149,9 @@ The older `spike\mock_server.py` does the same job but needs Python and a
 ### Tests
 
 ```powershell
-npm test        # 71 unit tests: the engine seam and WebSocket framing, session
-                # planning, profiler statistics, diagnosis, ports, phone server
+npm test        # the engine seam and WebSocket framing, profiler statistics,
+                # ports, phone server - plus whatever tests the engine on this
+                # branch brings. 32 on main, 71 on engine/whisperlivekit.
 npm run smoke   # renderer: preload bridge, AudioContext, AudioWorklet, captions
 ```
 
