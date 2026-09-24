@@ -88,7 +88,9 @@ Reading it:
 
 ## Licence
 
-Code (upstream and ours): Apache-2.0. Weights: NetEase Youdao Model Use License
+Upstream code is Apache-2.0, and `server.py` adapts parts of it with
+attribution — allowed inside this (unlicensed) app, but shipping it means
+carrying Apache-2.0's licence text and notices. Weights: NetEase Youdao Model Use License
 Agreement — royalty-free, commercial use allowed below 100M MAU and RMB 1B
 annual revenue, notice and a copy of the agreement retained in every copy,
 may not be used to improve other (commercial) models, PRC law with CIETAC
