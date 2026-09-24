@@ -74,14 +74,17 @@ test('the launch command execs the server in the foreground with a VRAM budget',
   const line = args[args.length - 1];
 
   if (process.platform === 'win32') {
-    // wsl.exe must be the direct parent: WSL tears a session down when the
-    // wsl.exe that started it exits, which is what ties the server's life to
-    // a process the shell can kill.
+    // wsl.exe must be the direct parent, with nothing between it and Python's
+    // stdin: killing wsl.exe does not kill Linux processes by itself, but it
+    // does close that relay, and server.py exits on stdin EOF.
     assert.equal(file, 'wsl.exe');
     assert.deepEqual(args.slice(0, 3), ['-d', 'Ubuntu', '--']);
   }
   // `exec`, so the Python server replaces bash and receives stdin EOF itself.
+  // A pipeline here (`something | python`) would leave the orphan that was
+  // actually observed: stdin fed by a WSL process that outlives wsl.exe.
   assert.match(line, /\bexec\b/);
+  assert.doesNotMatch(line, /\|/, 'nothing may sit between wsl.exe and the server\'s stdin');
   assert.match(line, /--vram-gib 7\b/);
   assert.match(line, /--kv-gib 2\b/);
   assert.match(line, /--port 0\b/, 'the port is chosen by the OS and read from READY');

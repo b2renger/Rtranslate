@@ -441,7 +441,14 @@ def main():
     parser.add_argument("--warm-language", default="French")
     args = parser.parse_args()
 
-    os.setpgrp()                               # so watch_parent can take the vLLM child too
+    # Lead our own process group, so watch_parent can kill the vLLM engine
+    # core along with us. Launched through wsl.exe with `exec`, this process is
+    # already a SESSION leader - and a session leader may not change group
+    # (EPERM), but it already leads its own. Either way killpg below works.
+    try:
+        os.setpgrp()
+    except PermissionError:
+        assert os.getpgid(0) == os.getpid(), "not a group leader and cannot become one"
     watch_parent()
     model = Model(args)
     asyncio.run(serve(model, args))

@@ -103,10 +103,18 @@ function sh(value) {
  * The command that starts the server, as [file, args].
  *
  * On Windows it goes through `wsl.exe`, which stays in the FOREGROUND as the
- * server's parent. That is deliberate: WSL tears down a session's processes
- * when the wsl.exe that started them exits, so the server's life is tied to a
- * process the shell can kill. server.py also exits when its stdin closes, for
- * the case where killing wsl.exe does not reach the Linux side.
+ * server's parent, and bash `exec`s Python so that Python's stdin IS wsl.exe's
+ * relay of ours. That chain is the whole shutdown story, because killing
+ * wsl.exe does NOT by itself kill the Linux processes behind it - verified:
+ * a server whose stdin came from another WSL process survived `taskkill /F`
+ * on its wsl.exe, still serving and still holding its VRAM, vLLM engine core
+ * and all.
+ *
+ * What does work is the pipe. When wsl.exe dies - stop(), killNow(), Task
+ * Manager, a crash - the relay closes, server.py sees stdin EOF, and kills its
+ * own process group. Verified both ways: after a clean stop() and after a
+ * bare `taskkill /F` on wsl.exe, nothing was left in WSL within two seconds.
+ * So never put anything between wsl.exe and Python's stdin.
  */
 function commandFor(settings) {
   const python = `${settings.r2t2Home}/.venv/bin/python`;
@@ -345,4 +353,4 @@ module.exports = {
 };
 
 // Exposed for tests.
-module.exports._internal = { toWslPath, commandFor, sh };
+module.exports._internal = { toWslPath, commandFor, sh, child: () => child };
