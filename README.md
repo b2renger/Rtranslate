@@ -8,6 +8,10 @@ language and a display language, and read captions as people talk.
 
 ---
 
+> **You are on `engine/r2t2`** — Confucius4-R2T2, streaming ASR that commits word
+> by word. `main` is the shell without an engine; see the table below for the
+> other branches.
+
 ## Which engine
 
 The shell is finished and the engine is not decided. Three candidates are being
