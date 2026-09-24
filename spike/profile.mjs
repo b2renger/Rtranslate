@@ -59,6 +59,7 @@ function parseArgs(argv) {
       case '--source': args.source = next(); break;
       case '--target': args.target = next(); break;
       case '--json': args.json = next(); break;
+      case '--ref': args.ref = next(); break;         // word timings; default <wav>.words.json
       case '--no-gpu': args.gpu = false; break;
       case '--fast': args.realtime = false; break;   // send as fast as possible
       case '--set': {                                 // --set model=medium
@@ -157,10 +158,156 @@ function parseTimestamp(value) {
 }
 
 // ---------------------------------------------------------------------------
+// word-level timing
+//
+// Line-level latency assumes an engine commits whole lines. That holds for
+// WhisperLiveKit (committed sentences) and QVAC (VAD segments), but not for an
+// engine that grows a line word by word: it would time only each line's first
+// word and report a number that looks wonderful and means nothing.
+//
+// So when a reference is available - make-sample.ps1 writes one, with the time
+// each word was actually spoken - every word is timed individually: from the
+// moment it finished being spoken to the moment it became committed text. One
+// definition, fair to all three engines, and the same alignment yields WER.
+// ---------------------------------------------------------------------------
+
+/**
+ * Lowercase, split on whitespace and apostrophes, strip punctuation. Accents
+ * are kept: "venu" and "venus" are different words to a reader.
+ */
+function tokenize(text) {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/[’']/g, ' ')
+    .replace(/[.,!?;:"«»()\[\]…—–\-_/]+/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+/**
+ * For each committed token position, the wall time since which it has held its
+ * current value. Committed text is meant to be final, but an engine may still
+ * re-segment it; tracking "stable since" rather than "first seen" credits a
+ * word only from the moment it stopped changing.
+ */
+class WordTracker {
+  constructor() {
+    this.tokens = [];
+    this.since = [];
+  }
+
+  update(text, at) {
+    const next = tokenize(text);
+    for (let j = 0; j < next.length; j++) {
+      if (this.tokens[j] !== next[j]) {
+        this.tokens[j] = next[j];
+        this.since[j] = at;
+      }
+    }
+    this.tokens.length = next.length;
+    this.since.length = next.length;
+  }
+}
+
+/**
+ * Levenshtein alignment with backtrace.
+ * @returns {{hits: Array<[number, number]>, sub: number, del: number, ins: number}}
+ *   hits are [refIndex, hypIndex] pairs whose tokens are identical.
+ */
+function align(ref, hyp) {
+  const n = ref.length;
+  const m = hyp.length;
+  const d = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+  for (let i = 0; i <= n; i++) d[i][0] = i;
+  for (let j = 0; j <= m; j++) d[0][j] = j;
+  for (let i = 1; i <= n; i++) {
+    for (let j = 1; j <= m; j++) {
+      const cost = ref[i - 1] === hyp[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
+    }
+  }
+
+  const hits = [];
+  let sub = 0;
+  let del = 0;
+  let ins = 0;
+  let i = n;
+  let j = m;
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && d[i][j] === d[i - 1][j - 1] + (ref[i - 1] === hyp[j - 1] ? 0 : 1)) {
+      if (ref[i - 1] === hyp[j - 1]) hits.push([i - 1, j - 1]);
+      else sub++;
+      i--; j--;
+    } else if (i > 0 && d[i][j] === d[i - 1][j] + 1) {
+      del++; i--;
+    } else {
+      ins++; j--;
+    }
+  }
+  return { hits: hits.reverse(), sub, del, ins };
+}
+
+/**
+ * Reference words -> tokens with the audio interval each was spoken in.
+ * A reference word can tokenise to several tokens ("d'être"); they share its
+ * interval. A word ends where the next begins, the last at the end of audio.
+ */
+function referenceTokens(words, audioSeconds) {
+  const out = [];
+  words.forEach((w, k) => {
+    const start = Number(w.t);
+    const end = k + 1 < words.length ? Number(words[k + 1].t) : audioSeconds;
+    for (const token of tokenize(w.w)) out.push({ token, start, end });
+  });
+  return out;
+}
+
+function wordStats(refWords, tracker, audioSeconds, audioSentAt) {
+  const ref = referenceTokens(refWords, audioSeconds);
+  const { hits, sub, del, ins } = align(ref.map((r) => r.token), tracker.tokens);
+
+  const timed = hits.map(([ri, hi]) => ({
+    spokenEnd: ref[ri].end,
+    committedAt: tracker.since[hi],
+    latency: tracker.since[hi] - ref[ri].end,
+  }));
+  // Same rule as the line stats: what arrives in the end-of-audio flush is not
+  // what a listener experiences live, so it is counted apart.
+  const live = timed.filter((t) => t.committedAt <= audioSentAt);
+  const lat = live.map((t) => t.latency);
+
+  // Drift: does latency hold, or climb as the run goes on? This is the
+  // four-minute rule in docs/TESTING.md, measured instead of eyeballed.
+  const third = audioSeconds / 3;
+  const early = live.filter((t) => t.spokenEnd <= third).map((t) => t.latency);
+  const late = live.filter((t) => t.spokenEnd > 2 * third).map((t) => t.latency);
+
+  return {
+    refTokens: ref.length,
+    hypTokens: tracker.tokens.length,
+    wer: ref.length ? round((sub + del + ins) / ref.length) : null,
+    substitutions: sub,
+    deletions: del,
+    insertions: ins,
+    matched: hits.length,
+    flushed: timed.length - live.length,
+    latency: {
+      median: round(percentile(lat, 50)),
+      p90: round(percentile(lat, 90)),
+      max: round(lat.length ? Math.max(...lat) : null),
+    },
+    drift: {
+      earlyMedian: round(percentile(early, 50)),
+      lateMedian: round(percentile(late, 50)),
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // the run
 // ---------------------------------------------------------------------------
 
-async function profile({ endpoint, pcm, source, target, realtime, gpu }) {
+async function profile({ endpoint, pcm, source, target, realtime, gpu, refWords = null }) {
   const url = new URL(endpoint);
   url.searchParams.set('language', source);
   if (target && target !== source) {
@@ -179,7 +326,11 @@ async function profile({ endpoint, pcm, source, target, realtime, gpu }) {
     firstCommitAt: null,
     readyToStopAt: null,
     warnings: [],
+    refWords,
   };
+
+  const tracker = new WordTracker();
+  record.tracker = tracker;
 
   const ws = new WebSocket(url);
   ws.binaryType = 'arraybuffer';
@@ -225,7 +376,20 @@ async function profile({ endpoint, pcm, source, target, realtime, gpu }) {
       record.events.push({ at: record.firstPartialAt, what: 'first partial' });
     }
 
+    if (msg.status === 'error') {
+      record.warnings.push(`Engine reported an error: ${msg.message}`);
+    }
+
     const lines = Array.isArray(msg.lines) ? msg.lines : [];
+
+    // Committed source text as the reader sees it - the thing word timing and
+    // WER are measured on. Source text, never translation: the reference is
+    // what was spoken.
+    tracker.update(
+      lines.filter((l) => l && l.speaker !== -2 && l.text).map((l) => l.text).join(' '),
+      (now - started) / 1000,
+    );
+
     lines.forEach((line, i) => {
       if (line?.speaker === -2 || line?.text == null) return;   // silence marker
 
@@ -355,6 +519,9 @@ function summarise(record) {
     meanGpuUtilPct: record.gpuSamples.length
       ? Math.round(record.gpuSamples.reduce((a, s) => a + s.utilPct, 0) / record.gpuSamples.length)
       : null,
+    words: record.refWords && record.tracker
+      ? wordStats(record.refWords, record.tracker, record.audioSeconds, record.audioSentAt)
+      : null,
   };
   return record;
 }
@@ -384,6 +551,19 @@ function report(record, label) {
     row('translation latency (median)', s.translationLatency.median);
     row('translation behind text', s.translationLagMedian);
   }
+  if (s.words) {
+    const w = s.words;
+    console.log('\n  per word, from when it was spoken');
+    row('word latency (median)', w.latency.median);
+    row('word latency (p90)', w.latency.p90);
+    row('word latency (max)', w.latency.max);
+    row('  first third of the run', w.drift.earlyMedian);
+    row('  last third of the run', w.drift.lateMedian);
+    row('WER', w.wer == null ? null : `${(w.wer * 100).toFixed(1)}%`, '');
+    row('  sub / del / ins', `${w.substitutions} / ${w.deletions} / ${w.insertions}`, '');
+    row('  words matched', `${w.matched} of ${w.refTokens}`, '');
+    if (w.flushed) row('  matched only in the flush', w.flushed, '');
+  }
   console.log('');
   row('commits during audio', s.commitsDuringAudio, '');
   row('commits after end-of-audio', s.commitsAfterAudio, '');
@@ -412,6 +592,7 @@ Profile any engine that speaks docs/engine-contract.md.
   --set k=v            engine setting override, repeatable
   --fast               send audio as fast as possible (throughput, not latency)
   --no-gpu             skip nvidia-smi sampling
+  --ref <path>         word timings; default: <wav>.words.json from make-sample.ps1
   --json <path>        write the full record, including every commit event
 `;
 
@@ -425,6 +606,18 @@ async function main() {
 
   const wavPath = path.isAbsolute(args.wav) ? args.wav : path.resolve(ROOT, args.wav);
   const pcm = readWav(wavPath);
+
+  // Word timings, if there are any: make-sample.ps1 writes them next to the
+  // WAV. Without them the run still reports line-level figures, and says so.
+  const refPath = args.ref
+    ? (path.isAbsolute(args.ref) ? args.ref : path.resolve(ROOT, args.ref))
+    : wavPath.replace(/\.wav$/i, '.words.json');
+  let refWords = null;
+  if (fs.existsSync(refPath)) {
+    refWords = JSON.parse(fs.readFileSync(refPath, 'utf8').replace(/^\uFEFF/, ''));
+  } else if (args.ref) {
+    throw new Error(`--ref ${args.ref}: no such file`);
+  }
 
   let endpoint = args.endpoint;
   let engine = null;
@@ -451,7 +644,14 @@ async function main() {
   }
 
   try {
-    const record = await profile({ ...args, endpoint, pcm });
+    const record = await profile({ ...args, endpoint, pcm, refWords });
+    if (!refWords) {
+      record.warnings.push(
+        `No word timings (${path.basename(refPath)}): per-word latency and WER not measured. ` +
+        'Line-level latency under-reports engines that commit word by word. ' +
+        'Regenerate the sample with spike\\make-sample.ps1.',
+      );
+    }
     record.engine = engine?.id || 'external';
     record.label = label;
     report(record, label);
@@ -468,7 +668,10 @@ async function main() {
 // Exported so the summary maths can be unit-tested against hand-built records.
 // The stats are the whole point of this file; a quiet arithmetic error here
 // would not crash anything, it would just make one engine look better.
-export { summarise, parseTimestamp, readWav, percentile, nllbCode };
+export {
+  summarise, parseTimestamp, readWav, percentile, nllbCode,
+  tokenize, align, WordTracker, referenceTokens, wordStats,
+};
 
 const invokedDirectly = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 
