@@ -8,58 +8,68 @@ language and a display language, and read captions as people talk.
 
 ---
 
-> **You are on `engine/qvac`** — the candidate engine. `main` is the shell
-> without an engine; `engine/whisperlivekit` is the incumbent.
+> **You are on `engine/qvac`** — Tether QVAC, one of the candidates. `main` is
+> the shell without an engine; see the table below for the other branches.
 
 ## Which engine
 
-The shell is finished and the engine is not decided. Two candidates are being
+The shell is finished and the engine is not decided. Three candidates are being
 measured against each other, and they live on branches:
 
 | Branch | Engine | Stack | Setup cost |
 |---|---|---|---|
 | `engine/whisperlivekit` | [WhisperLiveKit](https://github.com/QuentinFuxa/WhisperLiveKit) | Python 3.12, CUDA PyTorch, SimulStreaming/AlignAtt + NLLB-200 | ~4 GB, ~20 min |
 | `engine/qvac` | [Tether QVAC](https://qvac.tether.io/) | Bare runtime, whisper.cpp/Parakeet + nmtcpp, **Vulkan** | ~800 MB, no Python |
+| `engine/r2t2` | [Confucius4-R2T2](https://huggingface.co/netease-youdao/Confucius4-R2T2) | 1.7B streaming ASR on vLLM — **Linux, so WSL2 on Windows** | ~4 GB weights + vLLM |
 
 `main` carries everything that is not an engine — audio capture, captions, the
-phone display, settings, packaging, auto-update — plus the contract between the
-two, the registry that finds engines, a `mock` engine, and the harness that
-measures them. It does not know how either real engine works.
+phone display, settings, packaging, auto-update — plus the contract between
+them, the registry that finds engines, a `mock` engine, and the harness that
+measures them. It does not know how any real engine works.
 
 The seam is a localhost WebSocket, described in
-[docs/engine-contract.md](docs/engine-contract.md). Both engines are
-out-of-process anyway — one is Python, the other is a Bare worker, and neither
-loads into Electron — so a socket is what the boundary honestly is. The renderer
-is byte-identical across branches, which is what makes a measured difference a
-difference in the engine rather than in the shell around it.
+[docs/engine-contract.md](docs/engine-contract.md). Every engine is
+out-of-process anyway — a Python server, a Bare worker, a vLLM server in WSL,
+and none loads into Electron — so a socket is what the boundary honestly is. The
+renderer is byte-identical across branches, which is what makes a measured
+difference a difference in the engine rather than in the shell around it.
 
-**The comparison is half done.** QVAC has been measured (10 Sep 2026,
-[spike/RESULTS-qvac.md](spike/RESULTS-qvac.md) on `engine/qvac`); WhisperLiveKit
-has not, because it needs its 4 GB Python environment first. What is known:
+**Two of three are measured** (24 Sep 2026, same SAPI samples, every word timed
+from when it was spoken — see [docs/TESTING.md](docs/TESTING.md#where-the-numbers-already-stand)).
+WhisperLiveKit is not, because it needs its 4 GB Python environment first.
 
-- **QVAC's throughput is excellent.** 60 s of audio transcribed in 0.9–1.8 s on
-  the GPU — 36–60× real time.
-- **Its streaming latency is not.** 5–14 s median commit latency on the same
-  audio, climbing through a run as a backlog builds. An engine that fast is not
-  short of compute: its duplex session emits only when a VAD closes a speech
-  segment, and continuous speech makes long segments. AlignAtt emits *inside* a
-  sentence; this does not.
-- **It has no provisional text.** A line does not exist until it is final, so
-  the dimmed "still in flight" pane is always empty. For a live-caption app that
-  may matter more than the median.
-- **FR→EN is free** — Whisper's own translate task, no second model, no sentence
-  gate, and no slower than plain transcription. **EN→FR does not exist**: the
-  registry ships no French↔English translation model at all.
-- On Windows it runs **Vulkan, not CUDA**, even on an NVIDIA card — QVAC's own
-  source says so and this box confirms it. That turned out **not** to be the
-  problem: Vulkan beat CPU by 1.7× and was never the bottleneck.
-- Setup is cheaper but not free: **~805 MB** of prebuilt binaries for this
-  platform (a 4.8 GB working tree covering 11 platforms) against ~4 GB of
-  Python, and `envSetup.js` + `pythonEnv.js` stop being necessary. Though
-  QVAC's own model downloader currently crashes on this network.
+| | R2T2 | QVAC `base` | QVAC `large-v3-turbo` |
+|---|---|---|---|
+| word latency, FR / EN median | **0.49 / 0.46 s** | 3.05 / 2.68 s | 3.48 / 2.72 s |
+| word latency, FR p90 | **0.73 s** | 5.07 s | 5.43 s |
+| WER, FR / EN | 1.3% / 2.5% | 8.7% / 2.5% | 1.3% / **0.0%** |
+| provisional text | **yes** | no | no |
+| drift over 3.5 min | none | none | none |
 
-The next measurement that matters is **Parakeet CTC/Unified**, which is
-streaming-native and might fix the one thing that is actually wrong.
+What that says, and what it does not:
+
+- **Given its largest model, QVAC is as accurate as R2T2** on this audio. The
+  difference is latency — about sixfold — and a bigger QVAC model does not close
+  it. QVAC's throughput is superb (60 s transcribed in 0.9–1.8 s); it is its
+  streaming *policy* that waits: text is emitted only when a VAD closes a speech
+  segment. R2T2 commits word by word, ~0.5 s behind the speaker, with the next
+  word already showing dimmed.
+- **QVAC's latency does not climb through a run.** An earlier write-up said it
+  climbed from ~1 s to 24 s; that came from timing lines against QVAC's own
+  segment timestamps, which had to be reconstructed, and the reconstruction was
+  wrong. Timed against ground truth it is a flat ~3 s. Corrected everywhere it
+  had spread.
+- **R2T2 runs on Linux.** Streaming needs vLLM; its llama.cpp route ships
+  Linux-only binaries. On Windows it works through WSL2 — for testing, not yet
+  for shipping.
+- **Neither translates EN→FR.** QVAC has FR→EN for free (Whisper's own translate
+  task) and nothing for EN→FR; R2T2 transcribes only.
+- **Synthetic speech is clean speech.** French on real voices is R2T2's biggest
+  open question: upstream tuned it for Chinese and English and publishes no
+  French numbers.
+- On Windows QVAC runs **Vulkan, not CUDA** — its own source says so. It was
+  never the bottleneck. And QVAC's model downloader crashes on this network;
+  seeding its cache by hand works.
 
 ---
 
@@ -151,9 +161,9 @@ The older `spike\mock_server.py` does the same job but needs Python and a
 ```powershell
 npm test        # the engine seam and WebSocket framing, profiler statistics,
                 # ports, phone server - plus whatever tests the engine on this
-                # branch brings. 32 on main, 71 on engine/whisperlivekit,
-                # 44 here - this engine's planning is pure and testable, but
-                # everything past plan() needs the SDK, the weights and a GPU.
+                # branch brings, so the count differs per branch. Here, the
+                # engine's planning is pure and tested; everything past plan()
+                # needs the SDK, the weights and a GPU.
 npm run smoke   # renderer: preload bridge, AudioContext, AudioWorklet, captions
 ```
 
@@ -164,8 +174,9 @@ Those cover what a machine can check. **[docs/TESTING.md](docs/TESTING.md) is
 the human protocol** — the shell on the mock engine, per-branch engine
 acceptance, and the side-by-side session that decides which engine ships. Read
 its first rule before running anything live: four minutes of continuous speech
-minimum, because QVAC's latency climbs *through* a run and a short test hides
-it.
+minimum. Context, resets and falling behind all only show over minutes; the
+profiler now reports drift, first third against last, so it is measured rather
+than eyeballed.
 
 ### Building
 
@@ -346,6 +357,7 @@ src/
       mock.js       fixed captions, known lags, no inference
       whisperlivekit.js   [engine/whisperlivekit] Python sidecar + CUDA PyTorch
       qvac.js             [engine/qvac]           Bare worker + Vulkan
+      r2t2.js + r2t2/     [engine/r2t2]           vLLM server in WSL2, our contract
     miniws.js       the WebSocket server engines serve the contract with
     phoneServer.js  LAN caption server: SSE, access key, adapter ranking
     updater.js      auto-update, refusing to interrupt a live session
@@ -359,14 +371,16 @@ src/
   phone/            the page phones load: no build step, no dependencies
   shared/languages.cjs   the one canonical language-code table
 docs/
-  TESTING.md          the human protocol: what a script cannot check, both branches
+  TESTING.md          the human protocol: what a script cannot check, every branch
   engine-contract.md  the boundary: what an engine must do, and why it is a socket
   websocket-api.md    the wire protocol, as verified against WhisperLiveKit
   plan.md             the implementation plan
   audit-full.md       the original audit, including the Chinese analysis
 spike/
   profile.mjs       the engine profiler - plain node, targets the contract, so
-                    one code path measures both candidates
+                    one code path measures every candidate; times each word
+                    against when it was spoken and scores WER
+  make-sample.ps1   SAPI speech with a transcript and per-word timings
   README.md         how to run a comparison
 test/               unit tests
 ```

@@ -1,10 +1,39 @@
 # QVAC — measured, 10 Sep 2026
 
-First real numbers for the candidate engine. **Half a comparison**: the
+First real numbers for the QVAC engine. **Half a comparison**: the
 incumbent has not been measured yet, because it needs its 4 GB Python
 environment and a machine that is not this one. Everything below is QVAC alone.
 
 Read the caveats before quoting any of it.
+
+> ## Correction, 24 Sep 2026 — the streaming latency below is wrong
+>
+> The streaming table and the "climbs monotonically, 0.97 → 24.4 s" finding
+> further down were **measurement artefacts**. They timed each *line* against
+> QVAC's own segment timestamps, which restart at every VAD segment and had to be
+> reconstructed; an accumulating error in that reconstruction produces exactly a
+> monotonic climb. Some French runs also used audio SAPI had spoken as mojibake.
+>
+> Re-measured with `spike/profile.mjs` timing **every word against when it was
+> actually spoken** (ground truth from `make-sample.ps1`, independent of anything
+> the engine reports):
+>
+> | | QVAC `base` | QVAC `large-v3-turbo` |
+> |---|---|---|
+> | FR 54 s — word latency median / p90 | 3.05 / 5.07 s | 3.48 / 5.43 s |
+> | EN 60 s — word latency median / p90 | 2.68 / 4.99 s | 2.72 / 5.01 s |
+> | FR 3.5 min — median, first third → last third | 2.97 s, 3.07 → 2.86 | 3.00 s, 3.07 → 2.93 |
+> | WER, FR 54 s / FR 3.5 min / EN 60 s | 8.7% / 6.4% / 2.5% | 1.3% / 1.2% / 0.0% |
+>
+> So: QVAC lands a word **~3 s** after it is said (~5 s at p90), **flat** over
+> the whole run — not 5–14 s, and not climbing. The conclusion that its delay is
+> a streaming-policy problem rather than a compute one survives, and is now
+> stronger: `base` and the 10× larger `turbo` have the same latency. Given
+> `turbo`, QVAC's accuracy is excellent. The comparison against Confucius4-R2T2,
+> measured the same way, is in `spike/RESULTS-r2t2.md` on `engine/r2t2`.
+>
+> Everything below is the original 10 Sep record, left as written except where
+> marked, because the way it went wrong is worth keeping.
 
 ## What was measured on
 
@@ -48,8 +77,10 @@ Streaming the same audio through the engine contract, paced to the wall clock:
 in under a second is not short of compute — so the 5–14 s streaming latency is
 not a speed problem. It is a *policy* problem: QVAC's duplex session emits text
 only when its VAD closes a speech segment, and continuous speech makes long
-segments. On the French run, per-commit latency climbs monotonically —
-0.97 → 24.4 s — as the backlog of unclosed audio grows.
+segments. ~~On the French run, per-commit latency climbs monotonically —
+0.97 → 24.4 s — as the backlog of unclosed audio grows.~~ **Wrong — see the
+correction at the top.** Measured against ground truth there is no climb and no
+backlog; the latency is a flat ~3 s.
 
 This is precisely the risk that was flagged before any of this was built:
 WhisperLiveKit's AlignAtt is a *simultaneous decoding policy* that emits inside
@@ -109,7 +140,8 @@ maintenance hazard on an SDK bump.
    to start at 0:00:00. The engine reconstructs a session timeline by
    accumulating segment durations; it is approximate, and QVAC's own values are
    occasionally non-monotonic within a segment. Per-line latency here is
-   therefore ±1 segment. The aggregate trend is unaffected.
+   therefore ±1 segment. ~~The aggregate trend is unaffected.~~ **It was not** — this
+   reconstruction is what produced the false climb; see the correction at the top.
 
 And one that is not silent but is worse:
 
