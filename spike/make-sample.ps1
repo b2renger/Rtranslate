@@ -102,6 +102,35 @@ $format = New-Object System.Speech.AudioFormat.SpeechAudioFormatInfo(
     [System.Speech.AudioFormat.AudioChannel]::Mono
 )
 
+# When each word was spoken. SAPI raises SpeakProgress once per word with its
+# position in the audio it is writing, which is exactly the ground truth
+# profile.mjs needs to time every word from the moment it was said - the only
+# latency definition that is fair to engines that commit word by word and to
+# engines that commit whole sentences.
+#
+# Collected in compiled C# rather than a PowerShell scriptblock: the event can
+# fire on the synthesizer's own thread, and a scriptblock handler there has no
+# runspace and takes the host down.
+if (-not ('RtWordTimer' -as [type])) {
+    Add-Type -ReferencedAssemblies System.Speech -TypeDefinition @"
+using System.Collections.Generic;
+using System.Globalization;
+using System.Speech.Synthesis;
+public class RtWordTimer {
+    public readonly List<string> Words = new List<string>();
+    public void Attach(SpeechSynthesizer s) {
+        s.SpeakProgress += (o, e) => {
+            lock (Words) {
+                Words.Add(e.AudioPosition.TotalSeconds.ToString("0.000", CultureInfo.InvariantCulture) + "\t" + e.Text);
+            }
+        };
+    }
+}
+"@
+}
+$timer = New-Object RtWordTimer
+$timer.Attach($synth)
+
 $synth.SetOutputToWaveFile($wav, $format)
 $synth.Speak($text) | Out-Null
 $synth.SetOutputToNull()
@@ -110,7 +139,15 @@ $synth.Dispose()
 # UTF-8 *without* a BOM. Windows PowerShell's -Encoding utf8 writes one, and a
 # BOM at the head of the reference transcript turns the first word into mojibake
 # for anything that scores against it.
-[System.IO.File]::WriteAllText($txt, $text, (New-Object System.Text.UTF8Encoding($false)))
+$utf8 = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText($txt, $text, $utf8)
+
+$wordsPath = [System.IO.Path]::ChangeExtension($wav, '.words.json')
+$words = foreach ($entry in $timer.Words) {
+    $t, $w = $entry -split "`t", 2
+    [pscustomobject]@{ w = $w; t = [double]::Parse($t, [System.Globalization.CultureInfo]::InvariantCulture) }
+}
+[System.IO.File]::WriteAllText($wordsPath, (ConvertTo-Json -InputObject @($words) -Compress), $utf8)
 
 $bytes = (Get-Item $wav).Length
 $duration = [Math]::Round(($bytes - 44) / 2 / 16000, 1)
@@ -119,6 +156,7 @@ Write-Host ""
 Write-Host "  wrote $wav"
 Write-Host "  $duration s of $voiceCulture speech, 16 kHz mono, $([Math]::Round($bytes/1KB)) KB"
 Write-Host "  transcript: $txt"
+Write-Host "  word timings: $wordsPath ($(@($words).Count) words, last at $(@($words)[-1].t) s)"
 Write-Host ""
-Write-Host "  node spike\profile.mjs --engine qvac --wav $wav"
+Write-Host "  node spike\profile.mjs --engine <id> --wav $wav"
 Write-Host ""
